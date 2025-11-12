@@ -2,7 +2,7 @@
 // src/pages/clientes.astro
 import Layout from '../layouts/Layout.astro';
 import Navbar from '../components/Navbar.astro';
-import { supabase } from '../lib/supabase';
+import { supabase } from '$lib/supabase';
 
 const user = Astro.locals.user;
 if (!user) return Astro.redirect('/login');

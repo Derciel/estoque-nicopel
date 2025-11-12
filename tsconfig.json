@@ -1,7 +1,13 @@
+// tsconfig.json (ou jsconfig.json)
 {
-  "extends": "astro/tsconfigs/base",
   "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "react"
+    // ... (outras configurações)
+    "baseUrl": ".",
+    "paths": {
+      // ✅ Defina o alias $lib para a pasta src/lib
+      "$lib/*": ["src/lib/*"],
+      // ✅ Defina o alias @ para a pasta src
+      "@/*": ["src/*"]
+    }
   }
 }
