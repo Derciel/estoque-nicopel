@@ -1,1 +1,20 @@
-node_modules
+# Pasta de build e cache do Node.js
+/node_modules
+
+# Pasta de saída do Astro (gerada ao rodar 'npm run build')
+/dist
+
+# Arquivos de log de desenvolvimento
+*.log
+npm-debug.log*
+
+# Variáveis de ambiente (SEGREDO!)
+# É CRÍTICO que o arquivo .env (e suas variantes) não suba.
+.env
+.env.development
+.env.production
+.env.local
+
+# Arquivos temporários e de editor
+.DS_Store
+*.swp

@@ -9,20 +9,27 @@ const { title, user } = Astro.props;
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title} - EstoquePro</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title} - Estoque Nicopel</title>
+  
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  
+  <link rel="icon" 
+        href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text x=%2750%27 y=%2790%27 style=%27font-size:80px; fill:%230D47A1;%27>📦</text></svg>"
+        type="image/svg+xml">
+  
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-gray-100">
-  <div class="flex h-screen">
-    <Sidebar user={user} />
-    <div class="flex-1 flex flex-col">
-      <Header user={user} />
-      <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-200 p-6">
-        <slot />
-      </main>
-    </div>
-  </div>
+  <div class="flex h-screen">
+    <Sidebar user={user} />
+    <div class="flex-1 flex flex-col">
+      <Header user={user} />
+      <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-200 p-6">
+        <slot />
+      </main>
+    </div>
+  </div>
 </body>
 </html>
