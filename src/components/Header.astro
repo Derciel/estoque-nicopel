@@ -1,0 +1,20 @@
+---
+const { user } = Astro.props;
+---
+
+<header class="bg-white shadow-sm border-b">
+  <div class="flex justify-between items-center px-6 py-4">
+    <h1 class="text-2xl font-bold text-gray-800">Sistema de Gerenciamento de Estoque</h1>
+    <div class="flex items-center space-x-4">
+      <span class="text-gray-600">{user?.profile?.nome}</span>
+      <span class="px-3 py-1 bg-primary text-white rounded-full text-sm">
+        {user?.profile?.role}
+      </span>
+      <form action="/api/auth/logout" method="POST">
+        <button type="submit" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+          Sair
+        </button>
+      </form>
+    </div>
+  </div>
+</header>

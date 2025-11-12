@@ -1,0 +1,28 @@
+---
+const { user } = Astro.props;
+
+const menuItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: '📊' },
+  { href: '/products', label: 'Produtos', icon: '📦' },
+  { href: '/movements/entradas', label: 'Entradas', icon: '⬅️' },
+  { href: '/movements/saidas', label: 'Saídas', icon: '➡️' },
+  { href: '/reports', label: 'Relatórios', icon: '📈' },
+];
+---
+
+<aside class="w-64 bg-gray-800 text-white">
+  <div class="p-6">
+    <h2 class="text-2xl font-bold">EstoquePro</h2>
+  </div>
+  <nav class="mt-6">
+    {menuItems.map(item => (
+      <a
+        href={item.href}
+        class="flex items-center px-6 py-3 hover:bg-gray-700 transition-colors"
+      >
+        <span class="mr-3">{item.icon}</span>
+        {item.label}
+      </a>
+    ))}
+  </nav>
+</aside>

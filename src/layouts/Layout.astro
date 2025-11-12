@@ -1,0 +1,45 @@
+---
+// src/layouts/Layout.astro
+interface Props {
+  title: string;
+  user: any;
+}
+
+const { title, user } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title %> - EstoquePro</title>
+    <style>
+      @tailwind base;
+      @tailwind components;
+      @tailwind utilities;
+    </style>
+  </head>
+  <body>
+    <slot />
+    
+    <script>
+      // Adicionar interatividade básica
+      document.addEventListener('DOMContentLoaded', function() {
+        // Adicionar classe hover-lift para cards
+        const cards = document.querySelectorAll('.bg-white');
+        cards.forEach(card => {
+          card.classList.add('hover-lift');
+        });
+
+        // Fechar alertas automaticamente
+        const alerts = document.querySelectorAll('.bg-green-50, .bg-red-50');
+        alerts.forEach(alert => {
+          setTimeout(() => {
+            alert.style.display = 'none';
+          }, 5000);
+        });
+      });
+    </script>
+  </body>
+</html>

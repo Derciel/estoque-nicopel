@@ -1,0 +1,142 @@
+---
+// src/pages/config/usuarios.astro
+import Layout from '../../layouts/Layout.astro';
+import { supabase } from '../../lib/supabase';
+
+export const prerender = false; // Esta página é sempre dinâmica
+
+const user = Astro.locals.user;
+
+// --- LÓGICA DE PERMISSÕES (PARA O HEADER) ---
+const userName = user.profile?.name ?? 'Usuário';
+const userRole = user.profile?.role ?? 'Visitante';
+const userAvatar = userName.charAt(0).toUpperCase() || '#';
+
+const canSeeItens = ['admin', 'Estoquista_Entrada', 'Estoquista_Saida'].includes(userRole);
+const canSeeClientes = ['admin', 'Estoquista_Saida', 'Estoquista_Entrada'].includes(userRole);
+const canSeeEntrada = ['admin', 'Estoquista_Entrada'].includes(userRole);
+const canSeeSaida = ['adminr', 'Estoquista_Saida'].includes(userRole);
+const canSeeRelatorios = ['admin'].includes(userRole);
+const canSeeImportacao = ['admin'].includes(userRole);
+const canSeeConfig = ['admin'].includes(userRole);
+
+// --- VERIFICAÇÃO DE ACESSO ---
+if (userRole !== 'Administrador') {
+  return Astro.redirect('/dashboard?error=nao_autorizado');
+}
+
+// --- BUSCA DE DADOS ---
+const { data: usuarios, error } = await supabase
+  .from('profiles')
+  .select('id, name, email, role') // Pega 'name'
+  .order('name'); // Ordena por 'name'
+---
+
+<Layout title="Configurações - Usuários" user={user}>
+  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    
+    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
+      <div class="px-6 py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-8">
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            	EstoquePro
+          	</h1>
+          	<nav class="flex items-center gap-1 bg-white/50 rounded-2xl border border-gray-200 p-1 shadow-sm">
+          	  <a href="/dashboard" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300">
+          	    <span>Dashboard</span>
+          	  </a>
+          	  {canSeeItens && ( <a href="/itens" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Itens</span> </a> )}
+            {canSeeClientes && ( <a href="/clientes" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Clientes</span> </a> )}
+            {canSeeEntrada && ( <a href="/entrada" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Entrada</span> </a> )}
+            {canSeeSaida && ( <a href="/saida" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Saída</span> </a> )}
+            {canSeeRelatorios && ( <a href="/relatorios" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Relatórios</span> </a> )}
+            {canSeeImportacao && ( <a href="/importacao" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Importação</span> </a> )}
+            {canSeeConfig && ( <a href="/config/usuarios" class="px-4 py-2 rounded-xl bg-blue-50 text-blue-600 font-medium text-sm transition-all duration-300"> <span>Configurações</span> </a> )}
+          	</nav>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                <span class="text-white text-sm font-medium">{userAvatar}</span>
+              </div>
+            	<div class="hidden sm:block">
+            	  <p class="text-sm font-medium text-gray-900">{userName}</p>
+            	  <p class="text-xs text-gray-500">{userRole}</p>
+        	    </div>
+        	  </div>
+        	  <a href="/api/auth/signout" class="relative p-2 text-gray-600 hover:bg-gray-100 rounded-xl transition-colors" title="Sair">
+        	    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+    	      </a>
+      	  </div>
+    	  </div>
+  	  </div>
+  	</header>
+
+    <main class="p-6">
+      <div class="max-w-7xl mx-auto">
+        <div class="flex items-center justify-between mb-8">
+          <div>
+            <h2 class="text-3xl font-bold text-gray-900">Gerenciar Usuários</h2>
+            <p class="text-gray-600 mt-2">Veja e edite as permissões dos usuários.</p>
+          </div>
+          <a 
+            href="https://supabase.com/dashboard/project" 
+            target="_blank" 
+            class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
+          >
+            Convidar Novo Usuário (via Supabase)
+          </a>
+        </div>
+        
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+          <div class="flex items-center gap-3">
+            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <p class="text-blue-800 font-medium">
+              Lembrete: Convide usuários pelo painel do Supabase. Use esta tela para **promover** a `role` deles de "Visitante" para uma função superior.
+            </p>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-200">
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="border-b border-gray-200">
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Nome</th>
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Email</th>
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Função (Role)</th>
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usuarios && usuarios.length > 0 ? usuarios.map((u) => (
+                  <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                    <td class="py-4 px-6 font-medium text-gray-900">{u.name || 'Sem nome'}</td>
+                    <td class="py-4 px-6 text-gray-600">{u.email || 'Sem email'}</td>
+                    <td class="py-4 px-6">
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {u.role}
+                      </span>
+                    </td>
+                    <td class="py-4 px-6">
+                      <a href={`/config/editar-usuario/${u.id}`} class="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                        Editar Permissões
+                a     </a>
+                    </td>
+            	      </tr>
+        	        )) : (
+        	          <tr>
+        	            <td colspan="4" class="py-8 px-6 text-center text-gray-500">
+      	              Nenhum usuário encontrado.
+      	            </td>
+    	            </tr>
+  	            )}
+  	          </tbody>
+  	        </table>
+  	      </div>
+    	  </div>
+  	  </div>
+  	</main>
+  </div>
+</Layout>

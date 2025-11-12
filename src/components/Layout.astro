@@ -1,0 +1,28 @@
+---
+import Header from './Header.astro';
+import Sidebar from './Sidebar.astro';
+import '../styles/global.css';
+
+const { title, user } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title} - EstoquePro</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100">
+  <div class="flex h-screen">
+    <Sidebar user={user} />
+    <div class="flex-1 flex flex-col">
+      <Header user={user} />
+      <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-200 p-6">
+        <slot />
+      </main>
+    </div>
+  </div>
+</body>
+</html>

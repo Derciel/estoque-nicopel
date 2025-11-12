@@ -1,0 +1,359 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+import Navbar from '../components/Navbar.astro';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const userName = user.profile?.name ?? 'Usuário';
+const userRole = user.profile?.role ?? 'Visitante';
+const userAvatar = userName.charAt(0).toUpperCase() || '#';
+const currentPath = Astro.url.pathname;
+
+const { data: importacoes } = await supabase
+  .from('importacoes')
+  .select('*')
+  .order('created_at', { ascending: false })
+  .limit(10);
+---
+
+<Layout title="Importação de Dados" user={user}>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+
+    <!-- ✅ NAVBAR REUTILIZÁVEL -->
+    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 w-full">
+      <div class="max-w-7xl mx-auto px-6 py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-8">
+          <img src=https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-20 w-auto mr-4" />
+            </h1>
+            <Navbar user={user} currentPath={currentPath} />
+          </div>
+
+          <!-- ✅ Perfil com Dropdown -->
+          <div class="relative" id="profile-menu-container">
+            <button id="profile-menu-button" class="flex items-center gap-3 cursor-pointer">
+              <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                <span class="text-white text-sm font-medium">{userAvatar}</span>
+              </div>
+              <div class="hidden sm:block">
+                <p class="text-sm font-medium text-gray-900">{userName}</p>
+                <p class="text-xs text-gray-500">{userRole}</p>
+              </div>
+            </button>
+            <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
+              <div class="px-4 py-2 border-b border-gray-100">
+                <p class="text-sm font-medium text-gray-900 truncate">{userName}</p>
+                <p class="text-xs text-gray-500 truncate">{user.email}</p>
+              </div>
+              <a href="/api/auth/signout" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                <span>Sair</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  	  	<main id="main-importer" class="p-6" data-userid={user.id}>
+  	  <div class="max-w-7xl mx-auto">
+  	  	<div class="flex items-center justify-between mb-8">
+  	  	  <div>
+  	  	  	<h2 class="text-3xl font-bold text-gray-900">Importação de Clientes e Produtos</h2>
+  	  	  	<p class="text-gray-600 mt-2">Importe um cliente e todos os seus produtos de uma só vez.</p>
+  	  	  </div>
+  	  	</div>
+
+  	  	<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  	  	    	  	  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-6">
+  	  	  	<div>
+  	  	  	  <label class="block text-sm font-medium text-gray-700 mb-2">Selecione o arquivo (XLSX, CSV)</label>
+  	  	  	  <div id="dropzone" class="flex justify-center items-center w-full px-6 py-10 border-2 border-gray-300 border-dashed rounded-lg text-center cursor-pointer hover:bg-gray-50">
+  	  	  	  	<input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls, .csv">
+  	  	  	  	<div>
+  	  	  	  	  <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  	  	  	  	  	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/>
+  	  	  	  	  </svg>
+  	  	  	  	  <p class="mt-2 text-sm text-gray-600">
+  	  	  	  	  	Arraste o arquivo ou <span class="font-medium text-blue-600">clique para selecionar</span>
+  	  	  	  	  </p>
+  	  	  	  	  <p id="fileName" class="text-sm text-gray-500 mt-1"></p>
+  	  	  	  	</div>
+  	  	  	  </div>
+  	  	  	</div>
+  	  	  	
+  	  	  	  	  	  	<button id="processButton" class="w-full bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2" disabled>
+  	  	  	  Processar Arquivo
+  	  	  	</button>
+
+  	  	  	  	  	  	<div id="loadingSpinner" class="hidden flex justify-center items-center gap-3">
+  	  	  	  <svg class="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+  	  	  	    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+  	  	  	    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+  	  	  	  </svg>
+  	  	  	  <span class="text-gray-700">Processando...</span>
+  	  	  	</div>
+
+  	  	  	  	  	  	<div id="resultsArea" class="hidden p-4 bg-gray-50 rounded-lg border border-gray-200">
+  	  	  	    	  	  	</div>
+  	  	  	
+  	  	  	  	  	  	<button id="confirmButton" class="hidden w-full bg-green-600 text-white px-6 py-3 rounded-xl hover:bg-green-700 transition-colors font-medium">
+  	  	  	  Confirmar e Salvar no Banco
+  	  	  	</button>
+  	  	  </div>
+  	  	  
+  	  	    	  	  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-4">
+  	  	  	<h3 class="text-lg font-bold text-gray-900">Como Preparar seu Arquivo</h3>
+  	  	  	<p class="text-sm text-gray-700">O arquivo deve conter um produto por linha, com as informações do cliente repetidas em cada linha.</p>
+  	  	  	<p class="text-sm text-gray-700">O CNPJ é o identificador único do cliente.</p>
+  	  	  	<ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
+  	  	  	  <li><strong>cliente</strong> (Obrigatório)</li>
+  	  	  	  <li><strong>cnpj</strong> (Obrigatório, usado como ID)</li>
+  	  	  	  <li>email</li>
+  	  	  	  <li>telefone</li>
+  	  	  	  <li><strong>produtos</strong> (Obrigatório)</li>
+  	  	  	  <li><strong>categoria</strong> (Obrigatório)</li>
+  	  	  	  <li><strong>estoque inicial</strong> (com espaço)</li>
+  	  	  	  <li><strong>estoque minimo</strong> (com espaço)</li>
+  	  	  	</ul>
+  	  	  </div>
+
+  	  	    	  	  <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200">
+  	  	  	<h3 class="text-lg font-semibold text-gray-900 p-6 border-b border-gray-200">Histórico de Importações</h3>
+  	  	  	<div class="overflow-x-auto">
+  	  	  	<table class="w-full">
+              <thead>
+                <tr class="border-b border-gray-200">
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Data</th>
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Arquivo</th>
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Tipo</th>
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Status</th>
+                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Registros</th>
+                </tr>
+              </thead>
+  	  	  	  <tbody>
+  	  	  	  	{importacoes && importacoes.length > 0 ? importacoes.map(imp => (
+  	  	  	  	  <tr class="border-b border-gray-100 hover:bg-gray-50">
+  	  	  	  	  	<td class="py-4 px-6 text-sm text-gray-600">{new Date(imp.created_at).toLocaleString('pt-BR')}</td>
+  	  	  	  	  	<td class="py-4 px-6 text-sm font-medium text-gray-800">{imp.nome_arquivo}</td>
+  	  	  	  	  	<td class="py-4 px-6 text-sm text-gray-600">{imp.tipo_importacao}</td>
+  	  	  	  	  	<td class="py-4 px-6">
+  	  	  	  	  	  {imp.erros ? (
+  	  	  	  	  	  	<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-red-600 bg-red-50">
+  	  	  	  	  	  	  Falha
+  	  	  	  	  	  	</span>
+  	  	  	  	  	  ) : (
+  	  	  	  	  	  	<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-green-600 bg-green-50">
+  	  	  	  	  	  	  Sucesso
+  	  	  	  	  	  	</span>
+  	  	  	  	  	  )}
+  	  	  	  	  	</td>
+  	  	  	  	  	<td class="py-4 px-6 text-sm text-gray-600">{imp.registros_importados} / {imp.total_registros}</td>
+  	  	  	  	  </tr>
+  	  	  	  	)) : (
+  	  	  	  	  <tr>
+  	  	  	  	  	<td colspan="5" class="py-8 px-6 text-center text-gray-500">Nenhuma importação recente.</td>
+  	  	  	  	  </tr>
+  	  	  	  	)}
+  	  	  	  </tbody>
+  	  	  	</table>
+  	  	  	</div>
+  	  	  </div>
+
+  	  	</div>
+  	  </div>
+  	</main>
+  </div>
+
+    <script>
+  	import { supabase } from '../lib/supabase';
+
+  	const userId = document.getElementById('main-importer').dataset.userid;
+  	const fileInput = document.getElementById('fileInput');
+  	const dropzone = document.getElementById('dropzone');
+  	const fileNameEl = document.getElementById('fileName');
+  	const processButton = document.getElementById('processButton');
+  	const confirmButton = document.getElementById('confirmButton');
+  	const loadingSpinner = document.getElementById('loadingSpinner');
+  	const resultsArea = document.getElementById('resultsArea');
+  	
+  	let parsedData = []; 
+  	let currentFile = null; 
+
+  	function showLoading(message) {
+  	  loadingSpinner.classList.remove('hidden');
+  	  loadingSpinner.querySelector('span').textContent = message || 'Processando...';
+  	  processButton.disabled = true;
+  	  confirmButton.classList.add('hidden');
+  	}
+
+  	function hideLoading() {
+  	  loadingSpinner.classList.add('hidden');
+  	  processButton.disabled = false;
+  	}
+
+  	function showResults(htmlContent, showConfirm = false) {
+  	  resultsArea.innerHTML = htmlContent;
+  	  resultsArea.classList.remove('hidden');
+  	  if (showConfirm) {
+  	  	confirmButton.classList.remove('hidden');
+  	  } else {
+  	  	confirmButton.classList.add('hidden');
+  	  }
+  	}
+
+  	// --- Lógica do Dropzone (sem mudanças) ---
+  	dropzone.addEventListener('click', () => fileInput.click());
+  	dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('bg-blue-50', 'border-blue-500'); });
+  	dropzone.addEventListener('dragleave', () => dropzone.classList.remove('bg-blue-50', 'border-blue-500'));
+  	dropzone.addEventListener('drop', (e) => {
+  	  e.preventDefault();
+  	  dropzone.classList.remove('bg-blue-50', 'border-blue-500');
+  	  const files = e.dataTransfer.files;
+  	  if (files.length > 0) { fileInput.files = files; handleFileSelect(files[0]); }
+  	});
+  	fileInput.addEventListener('change', (e) => {
+  	  if (e.target.files.length > 0) { handleFileSelect(e.target.files[0]); }
+  	});
+
+  	function handleFileSelect(file) {
+  	  currentFile = file;
+  	  fileNameEl.textContent = file.name;
+  	  processButton.disabled = false;
+  	  showResults('', false);
+  	}
+
+  	// --- 1. Processar o Arquivo (Ler XLSX) ---
+  	processButton.addEventListener('click', async () => {
+  	  if (!currentFile) return;
+  	  showLoading('Lendo o arquivo...');
+  	  parsedData = [];
+
+  	  try {
+  	  	const data = await currentFile.arrayBuffer();
+  	  	const workbook = XLSX.read(data);
+  	  	const sheetName = workbook.SheetNames[0];
+  	  	const worksheet = workbook.Sheets[sheetName];
+        
+  	  	const json = XLSX.utils.sheet_to_json(worksheet, { raw: false }); 
+  	  	
+  	  	if (json.length === 0) throw new Error("Arquivo vazio.");
+
+        // ✅ CORREÇÃO: Validação usa os nomes do seu CSV
+        const firstRow = json[0];
+        if (!firstRow.cnpj || !firstRow.cliente || !firstRow.produtos || !firstRow.categoria) {
+          throw new Error("Colunas obrigatórias faltando. Verifique as instruções (cliente, cnpj, produtos, categoria).");
+        }
+  	  	
+  	  	parsedData = json; 
+  	  	renderPreview(json);
+  	  	hideLoading();
+  	  } catch (error) {
+  	  	console.error(error);
+  	  	showResults(`<p class="text-red-600"><strong>Erro ao ler:</strong> ${error.message}</p>`);
+  	  	hideLoading();
+  	  }
+  	});
+
+  	// --- 2. Renderizar a Prévia ---
+  	function renderPreview(data) {
+  	  const clientesUnicos = new Set(data.map(row => row.cnpj)); // ✅ CORRIGIDO
+  	  const totalProdutos = data.length;
+
+  	  let html = `
+  	  	<h4 class="font-medium text-gray-900">Prévia da Importação</h4>
+        <p class="text-sm text-gray-600 mb-2">
+          <strong class="text-gray-900">${clientesUnicos.size}</strong> cliente(s) único(s) encontrado(s).
+        </p>
+        <p class="text-sm text-gray-600 mb-2">
+          <strong class="text-gray-900">${totalProdutos}</strong> produtos totais a serem importados.
+        </p>
+  	  `;
+  	  showResults(html, true);
+  	}
+
+  	// --- 3. Confirmar e Salvar no Banco (LÓGICA "INTELIGENTE") ---
+  	confirmButton.addEventListener('click', async () => {
+  	  if (parsedData.length === 0) return;
+  	  
+  	  showLoading('Salvando no banco de dados...');
+  	  
+  	  let totalImportados = 0;
+  	  let erros = null;
+
+  	  try {
+        // --- ETAPA A: Pegar todos os Clientes ÚNICOS da planilha ---
+  	  	const cnpjsUnicos = [...new Set(parsedData.map(row => row.cnpj))]; // ✅ CORRIGIDO
+  	  	
+  	  	const clientesParaUpsert = cnpjsUnicos.map(cnpj => {
+  	  	  const row = parsedData.find(r => r.cnpj === cnpj); // ✅ CORRIGIDO
+  	  	  return {
+  	  	  	nome: row.cliente, // ✅ CORRIGIDO
+  	  	  	cnpj: row.cnpj, // ✅ CORRIGIDO
+  	  	  	email: row.email || null,
+  	  	  	telefone: row.telefone || null,
+  	  	  };
+  	  	});
+
+  	  	// --- ETAPA B: Criar ou Atualizar todos os Clientes de uma vez ---
+  	  	const { data: clientesResult, error: clienteError } = await supabase
+  	  	  .from('clientes')
+  	  	  .upsert(clientesParaUpsert, { onConflict: 'cnpj' })
+  	  	  .select('id, cnpj');
+
+  	  	if (clienteError) throw clienteError;
+  	  	
+  	  	// --- ETAPA C: Criar um Mapa de "CNPJ -> ID" ---
+  	  	const clienteIdMap = new Map(clientesResult.map(c => [c.cnpj, c.id]));
+
+  	  	// --- ETAPA D: Preparar todos os Produtos com o ID de Cliente correto ---
+  	  	const produtosData = parsedData.map(row => ({
+  	  	  nome: row.produtos, // ✅ CORRIGIDO
+  	  	  categoria: row.categoria, // ✅ CORRIGIDO
+  	  	  estoque_atual: Number(row['estoque inicial']) || 0, // ✅ CORRIGIDO
+  	  	  estoque_minimo: Number(row['estoque minimo']) || 0, // ✅ CORRIGIDO
+  	  	  cliente_id: clienteIdMap.get(row.cnpj), // ✅ CORRIGIDO
+  	  	}));
+
+  	  	// --- ETAPA E: Inserir todos os Produtos de uma vez ---
+  	  	const { data: produtosResult, error: produtosError } = await supabase
+  	  	  .from('produtos')
+  	  	  .insert(produtosData)
+  	  	  .select();
+
+  	  	if (produtosError) throw produtosError;
+
+  	  	totalImportados = produtosResult.length;
+  	  	showResults(`<p class="text-green-600"><strong>Sucesso!</strong> ${clientesResult.length} cliente(s) e ${totalImportados} produto(s) importados/atualizados.</p>`);
+
+  	  } catch (error) {
+  	  	console.error(error);
+  	  	erros = { message: error.message };
+  	  	showResults(`<p class="text-red-600"><strong>Erro ao salvar:</strong> ${error.message}. Verifique o console.</p>`);
+  	  
+  	  } finally {
+  	  	hideLoading();
+  	  	// --- 4. Logar a tentativa na tabela 'importacoes' ---
+  	  	await supabase.from('importacoes').insert({
+  	  	  nome_arquivo: currentFile.name,
+  	  	  tipo_importacao: 'clientes_e_produtos',
+  	  	  total_registros: parsedData.length,
+  	  	  registros_importados: totalImportados,
+  	  	  erros: erros,
+  	  	  usuario_id: userId
+  	  	});
+  	  	
+  	  	// Limpa o estado
+  	  	parsedData = [];
+  	  	currentFile = null;
+  	  	fileInput.value = null;
+  	  	fileNameEl.textContent = '';
+  	  	processButton.disabled = true;
+  	  	setTimeout(() => window.location.reload(), 3000); // Recarrega a página
+  	  }
+  	});
+
+  </script>
+</Layout>

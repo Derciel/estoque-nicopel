@@ -1,0 +1,188 @@
+---
+// src/pages/itens/editar/[id].astro
+import Layout from '../../../layouts/Layout.astro';
+import { supabase } from '../../../lib/supabase';
+
+export const prerender = false;
+
+const user = Astro.locals.user;
+const { id: produtoId } = Astro.params;
+
+if (!user) return Astro.redirect('/login');
+
+// Permissões
+const userName = user.profile?.name ?? 'Usuário';
+const userRole = user.profile?.role ?? 'Visitante';
+const userAvatar = userName.charAt(0).toUpperCase();
+const canSeeItens = ['Administrador', 'Estoquista_Entrada', 'Estoquista_Saida'].includes(userRole);
+const canSeeClientes = ['Administrador', 'Estoquista_Entrada', 'Estoquista_Saida'].includes(userRole);
+const canSeeEntrada = ['Administrador', 'Estoquista_Entrada'].includes(userRole);
+const canSeeSaida = ['Administrador', 'Estoquista_Saida'].includes(userRole);
+const canSeeRelatorios = ['Administrador'].includes(userRole);
+const canSeeImportacao = ['Administrador'].includes(userRole);
+const canSeeConfig = ['Administrador'].includes(userRole);
+
+let errorMessage: string | null = null;
+
+// POST — Atualizar
+if (Astro.request.method === 'POST') {
+  try {
+    const data = await Astro.request.formData();
+
+    const nome = data.get('nome')?.toString();
+    const categoria = data.get('categoria')?.toString();
+    const estoque_atual = Number(data.get('estoque_atual')) || 0;
+    const estoque_minimo = Number(data.get('estoque_minimo')) || 0;
+    const cliente_id = data.get('cliente_id') || null;
+    const ativo = data.get('ativo') === 'on';
+
+    if (!nome || !categoria) throw new Error('Nome e Categoria são obrigatórios.');
+
+    const updateObj = { nome, categoria, estoque_atual, estoque_minimo, cliente_id, ativo };
+
+    const { error } = await supabase
+      .from('produtos')
+      .update(updateObj)
+      .eq('id', produtoId);
+
+    if (error) throw error;
+
+    return Astro.redirect('/itens?success=Produto atualizado com sucesso!');
+  } catch (err: any) {
+    errorMessage = `Erro ao salvar: ${err.message}`;
+  }
+}
+
+// GET — Dados do produto e clientes
+const { data: produto } = await supabase
+  .from('produtos')
+  .select('*')
+  .eq('id', produtoId)
+  .single();
+
+const { data: clientes } = await supabase
+  .from('clientes')
+  .select('id, nome')
+  .order('nome');
+
+if (!produto) return Astro.redirect('/itens?error=Produto não encontrado');
+---
+
+<Layout title={`Editar ${produto.nome}`} user={user}>
+  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+  <!-- Header fixo e largo -->
+  <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 w-full">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-8">
+          <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            EstoquePro
+          </h1>
+
+          <nav class="flex items-center gap-1 bg-white/50 rounded-2xl border border-gray-200 p-1 shadow-sm">
+            <a href="/dashboard" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all">
+              Dashboard
+            </a>
+            {canSeeItens && (
+              <a href="/itens" class="px-4 py-2 rounded-xl bg-blue-50 text-blue-600 font-medium text-sm transition-all">Itens</a>
+            )}
+            {canSeeClientes && (
+              <a href="/clientes" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm">Clientes</a>
+            )}
+            {canSeeEntrada && (
+              <a href="/entrada" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm">Entrada</a>
+            )}
+            {canSeeSaida && (
+              <a href="/saida" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm">Saída</a>
+            )}
+            {canSeeRelatorios && (
+              <a href="/relatorios" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm">Relatórios</a>
+            )}
+            {canSeeImportacao && (
+              <a href="/importacao" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm">Importação</a>
+            )}
+            {canSeeConfig && (
+              <a href="/config/usuarios" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm">Configurações</a>
+            )}
+          </nav>
+        </div>
+
+        <!-- Perfil + Logout -->
+        <div class="flex items-center gap-4">
+          <div class="relative">
+            <button id="profile-menu-button" class="flex items-center gap-3 cursor-pointer">
+              <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                <span class="text-white text-sm font-medium">{userAvatar}</span>
+              </div>
+              <div class="hidden sm:block">
+                <p class="text-sm font-medium text-gray-900">{userName}</p>
+                <p class="text-xs text-gray-500">{userRole}</p>
+              </div>
+            </button>
+          </div>
+
+          <a href="/api/auth/signout" title="Sair" class="text-gray-600 hover:bg-gray-100 p-2 rounded-xl">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7" />
+            </svg>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Conteúdo da Página -->
+    <main class="p-6">
+      <div class="max-w-3xl mx-auto">
+        <h2 class="text-2xl font-bold mb-6">Editar Produto</h2>
+
+        {errorMessage && (
+          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {errorMessage}
+          </div>
+        )}
+
+        <form method="POST" class="bg-white p-8 rounded-xl border space-y-6 shadow-sm">
+          <div>
+            <label class="block text-sm font-medium mb-1">Nome *</label>
+            <input name="nome" required value={produto.nome} class="w-full border rounded px-3 py-2" />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1">Categoria *</label>
+            <input name="categoria" required value={produto.categoria} class="w-full border rounded px-3 py-2" />
+          </div>
+
+          <div class="grid grid-cols-2 gap-6">
+            <div>
+              <label class="block text-sm font-medium mb-1">Estoque Atual</label>
+              <input type="number" name="estoque_atual" value={produto.estoque_atual} class="w-full border rounded px-3 py-2" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Estoque Mínimo</label>
+              <input type="number" name="estoque_minimo" value={produto.estoque_minimo} class="w-full border rounded px-3 py-2" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1">Cliente Associado</label>
+            <select name="cliente_id" class="w-full border rounded px-3 py-2">
+              <option value="">Nenhum</option>
+              {clientes.map(c => (
+                <option value={c.id} selected={c.id === produto.cliente_id}>{c.nome}</option>
+              ))}
+            </select>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="ativo" checked={produto.ativo} class="rounded" />
+            <label class="text-sm text-gray-700">Produto Ativo</label>
+          </div>
+
+          <div class="flex justify-end gap-4 pt-6 border-t">
+            <a href="/itens" class="bg-gray-100 px-6 py-3 rounded-xl hover:bg-gray-200">Cancelar</a>
+            <button type="submit" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700">Salvar</button>
+          </div>
+        </form>
+      </div>
+    </main>
+  </div>
+</Layout>

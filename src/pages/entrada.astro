@@ -1,0 +1,322 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+import Navbar from '../components/Navbar.astro';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const userName = user.profile?.name ?? 'Usuário';
+const userRole = user.profile?.role ?? 'Visitante';
+const userAvatar = userName.charAt(0).toUpperCase() || '#';
+const currentPath = Astro.url.pathname;
+
+let errorMessage: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    const produto_id = formData.get('produto_id')?.toString();
+    const cliente_id = formData.get('cliente_id')?.toString();
+    const quantidade = Number(formData.get('quantidade'));
+    const valor_unitario = Number(formData.get('valor_unitario')) || 0;
+    const motivo = formData.get('motivo')?.toString() || 'Entrada manual';
+
+    if (!produto_id || !cliente_id || !quantidade || quantidade <= 0) {
+      throw new Error('Cliente, Produto e Quantidade (maior que zero) são obrigatórios.');
+    }
+
+    const { error } = await supabase.rpc('registrar_movimentacao', {
+      p_produto_id: produto_id,
+      p_tipo: 'entrada',
+      p_quantidade: quantidade,
+      p_valor_unitario: valor_unitario,
+      p_motivo: motivo,
+      p_cliente_id: cliente_id
+    });
+
+    if (error) throw error;
+
+    return Astro.redirect('/dashboard?success=Entrada registrada com sucesso!');
+  } catch (error: any) {
+    console.error('Erro ao registrar entrada:', error.message);
+    errorMessage = `Erro ao salvar: ${error.message}`;
+  }
+}
+---
+
+<Layout title="Registrar Entrada" user={user}>
+  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    
+    <!-- ✅ Navbar com componente reutilizável -->
+    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 w-full">
+      <div class="max-w-7xl mx-auto px-6 py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-8">
+          <img src=https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-12 w-auto mr-4" />
+            </h1>
+            <Navbar user={user} currentPath={currentPath} />
+          </div>
+
+          <div class="relative" id="profile-menu-container">
+            <button id="profile-menu-button" class="flex items-center gap-3 cursor-pointer">
+              <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                <span class="text-white text-sm font-medium">{userAvatar}</span>
+              </div>
+              <div class="hidden sm:block">
+                <p class="text-sm font-medium text-gray-900">{userName}</p>
+                <p class="text-xs text-gray-500">{userRole}</p>
+              </div>
+            </button>
+            <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
+              <div class="px-4 py-2 border-b border-gray-100">
+                <p class="text-sm font-medium text-gray-900 truncate">{userName}</p>
+                <p class="text-xs text-gray-500 truncate">{user.email}</p>
+              </div>
+              <a href="/api/auth/signout" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                <span>Sair</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- o restante do conteúdo da página continua aqui... -->
+
+
+    <!-- Main Content -->
+    <main class="p-6">
+      <div class="max-w-2xl mx-auto">
+        
+        <!-- Breadcrumb -->
+        <nav class="flex mb-6" aria-label="Breadcrumb">
+          <ol class="flex items-center space-x-2">
+            <li>
+              <a href="/dashboard" class="text-gray-500 hover:text-gray-700">Dashboard</a>
+            </li>
+            <li>
+              <svg class="flex-shrink-0 h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+              </svg>
+            </li>
+            <li>
+              <span class="text-gray-700 font-medium">Registrar Entrada</span>
+            </li>
+          </ol>
+        </nav>
+
+        {errorMessage && (
+          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6" role="alert">
+            <strong class="font-bold">Ops! </strong>
+            <span class="block sm:inline">{errorMessage}</span>
+          </div>
+        )}
+
+        <!-- Formulário de Entrada -->
+        <form method="POST" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-6">
+          <h2 class="text-2xl font-bold text-gray-900 mb-6">Registrar Entrada de Estoque</h2>
+
+          <!-- 1. Seletor de Cliente (com modal) -->
+          <div>
+            <label for="selected-client-name" class="block text-sm font-medium text-gray-700 mb-1">Cliente <span class="text-red-500">*</span></label>
+            <div class="flex gap-2">
+              <input 
+                type="text" 
+                id="selected-client-name" 
+                placeholder="Clique na lupa para buscar..." 
+                readonly 
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 cursor-pointer"
+              >
+              <input type="hidden" name="cliente_id" id="cliente_id">
+              <button type="button" id="open-client-modal" class="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. Seletor de Produto (Dependente) -->
+          <div>
+            <label for="produto_id" class="block text-sm font-medium text-gray-700 mb-1">Produto <span class="text-red-500">*</span></label>
+            <select 
+              name="produto_id" 
+              id="produto_id" 
+              required 
+              disabled 
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            >
+              <option value="">Selecione um cliente primeiro</option>
+            </select>
+          </div>
+
+          <!-- 3. Quantidade e Outros -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label for="quantidade" class="block text-sm font-medium text-gray-700 mb-1">Quantidade <span class="text-red-500">*</span></label>
+              <input type="number" name="quantidade" id="quantidade" required value="1" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          
+
+          <div class="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-200">
+            <a href="/dashboard" class="bg-gray-100 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-200 transition-colors font-medium">
+              Cancelar
+            </a>
+            <button type="submit" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium">
+              Registrar Entrada
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
+
+    <!-- Modal de Busca de Cliente -->
+    <div id="client-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 hidden z-50">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+        <div class="flex justify-between items-center p-6 border-b border-gray-200">
+          <h3 class="text-lg font-bold text-gray-900">Buscar Cliente</h3>
+          <button type="button" id="close-client-modal" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="p-6">
+          <input 
+            type="text" 
+            id="client-search-input" 
+            placeholder="Digite o nome ou CNPJ do cliente..." 
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+          <div id="client-search-results" class="mt-4 max-h-60 overflow-y-auto space-y-2">
+            <!-- Resultados da busca aparecerão aqui -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Importa o cliente Supabase
+    import { supabase } from '../lib/supabase';
+
+    // --- Elementos do DOM ---
+    const openModalBtn = document.getElementById('open-client-modal');
+    const closeModalBtn = document.getElementById('close-client-modal');
+    const modal = document.getElementById('client-modal');
+    const searchInput = document.getElementById('client-search-input');
+    const searchResults = document.getElementById('client-search-results');
+    const clientNameInput = document.getElementById('selected-client-name');
+    const clientIdInput = document.getElementById('cliente_id');
+    const productSelect = document.getElementById('produto_id');
+
+    // --- Abrir/Fechar Modal ---
+    openModalBtn.addEventListener('click', () => {
+      modal.classList.remove('hidden');
+      searchInput.focus();
+      // Inicia uma busca vazia para mostrar os primeiros clientes
+      performSearch('');
+    });
+    
+    closeModalBtn.addEventListener('click', () => modal.classList.add('hidden'));
+    
+    // Fecha o modal se clicar fora do conteúdo
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.add('hidden');
+      }
+    });
+
+    // --- Lógica de Busca de Cliente ---
+    let searchTimeout;
+    searchInput.addEventListener('keyup', (e) => {
+      clearTimeout(searchTimeout);
+      // Espera 300ms após o usuário parar de digitar
+      searchTimeout = setTimeout(() => {
+        performSearch(e.target.value);
+      }, 300);
+    });
+
+    async function performSearch(query) {
+      searchResults.innerHTML = '<p class="text-gray-500">Buscando...</p>';
+      
+      // Busca por nome OU cnpj
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('id, nome, cnpj')
+        .or(`nome.ilike.%${query}%,cnpj.ilike.%${query}%`)
+        .limit(10);
+
+      if (error) {
+        searchResults.innerHTML = '<p class="text-red-500">Erro ao buscar.</p>';
+        return;
+      }
+
+      if (data.length === 0) {
+        searchResults.innerHTML = '<p class="text-gray-500">Nenhum cliente encontrado.</p>';
+        return;
+      }
+
+      // Renderiza os resultados
+      searchResults.innerHTML = ''; // Limpa
+      data.forEach(client => {
+        const clientEl = document.createElement('div');
+        clientEl.className = 'p-3 border rounded-lg hover:bg-gray-100 cursor-pointer';
+        clientEl.innerHTML = `
+          <p class="font-medium text-gray-900">${client.nome}</p>
+          <p class="text-sm text-gray-600">${client.cnpj}</p>
+        `;
+        // Adiciona o evento de clique para SELECIONAR o cliente
+        clientEl.addEventListener('click', () => selectClient(client));
+        searchResults.appendChild(clientEl);
+      });
+    }
+
+    // --- Lógica de Seleção ---
+    function selectClient(client) {
+      // 1. Preenche o formulário principal
+      clientNameInput.value = client.nome;
+      clientIdInput.value = client.id;
+      
+      // 2. Fecha o modal
+      modal.classList.add('hidden');
+      
+      // 3. Busca os produtos DESTE cliente
+      loadProductsForClient(client.id);
+    }
+
+    async function loadProductsForClient(clientId) {
+      // 1. Limpa e desabilita o seletor de produtos
+      productSelect.innerHTML = '<option value="">Carregando produtos...</option>';
+      productSelect.disabled = true;
+
+      // 2. Busca produtos associados a este cliente
+      const { data, error } = await supabase
+        .from('produtos')
+        .select('id, nome, estoque_atual')
+        .eq('cliente_id', clientId)
+        .eq('ativo', true)
+        .order('nome');
+
+      if (error) {
+        productSelect.innerHTML = '<option value="">Erro ao buscar produtos</option>';
+        return;
+      }
+
+      if (data.length === 0) {
+        productSelect.innerHTML = '<option value="">Nenhum produto encontrado para este cliente</option>';
+        return;
+      }
+
+      // 3. Preenche o seletor de produtos
+      productSelect.innerHTML = '<option value="">-- Selecione um produto --</option>';
+      data.forEach(product => {
+        const option = document.createElement('option');
+        option.value = product.id;
+        option.textContent = `${product.nome} (Estoque: ${product.estoque_atual})`;
+        productSelect.appendChild(option);
+      });
+
+      // 4. Habilita o seletor
+      productSelect.disabled = false;
+    }
+  </script>
+</Layout>

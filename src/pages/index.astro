@@ -1,0 +1,20 @@
+---
+import Layout from '../components/Layout.astro';
+import { supabase } from '../lib/supabase';
+
+// ✅ CORREÇÃO
+const user = Astro.locals.user;
+
+if (!user) {
+  return Astro.redirect('/login');
+}
+
+const { data: produtos } = await supabase
+  .from('produtos')
+  .select('*')
+  .order('nome');
+---
+
+<Layout title="Produtos" user={user}>
+  <!-- conteúdo existente -->
+</Layout>
