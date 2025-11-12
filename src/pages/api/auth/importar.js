@@ -1,5 +1,5 @@
 // src/pages/api/importar.js
-import { supabase } from '../../lib/supabase';
+import { supabase } from '$lib/supabase';
 import xlsx from 'xlsx';
 
 export async function post({ request }) {
