@@ -2,11 +2,12 @@
 import Layout from '../layouts/Layout.astro';
 import { supabase } from '$lib/supabase';
 import Navbar from '../components/Navbar.astro';
+import '../styles/global.css';
 
 const user = Astro.locals.user;
 if (!user) return Astro.redirect('/login');
 
-const userName = user.profile?.name ?? 'Usuário';
+const userName = user.profile?.name ?? 'Admin';
 const userRole = user.profile?.role ?? 'Visitante';
 const currentPath = Astro.url.pathname;
 
@@ -73,11 +74,10 @@ const clienteNome = Object.fromEntries((clientesMap || []).map(c => [c.id, c.nom
 
 // Funções utilitárias
 function getStatus(stock, minStock) {
-  if (stock === 0) return { text: 'Sem Estoque', color: 'text-red-600 bg-red-50' };
-  if (stock <= minStock) return { text: 'Estoque Baixo', color: 'text-yellow-600 bg-yellow-50' };
-  return { text: 'Em Estoque', color: 'text-green-600 bg-green-50' };
+  if (stock === 0) return { text: 'Sem Estoque', color: 'status-zero' };
+  if (stock <= minStock) return { text: 'Estoque Baixo', color: 'status-baixo' };
+  return { text: 'Em Estoque', color: 'status-ok' };
 }
-
 function getTipoMovimentacao(tipo) {
   if (tipo === 'entrada') return { text: 'Entrada', color: 'text-green-600 bg-green-50' };
   return { text: 'Saída', color: 'text-red-600 bg-red-50' };
@@ -100,6 +100,7 @@ function getTipoMovimentacao(tipo) {
         </div>
       </div>
     </header>
+
 
     <main class="p-6">
       <div class="max-w-7xl mx-auto">

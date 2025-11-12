@@ -1,0 +1,23 @@
+/* src/styles/global.css */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Aqui criamos nossos próprios componentes de "pílula" de status
+  usando as classes do Tailwind.
+*/
+@layer components {
+  .status-pill {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .status-ok {
+    @apply status-pill bg-green-50 text-green-600;
+  }
+  .status-baixo {
+    @apply status-pill bg-yellow-50 text-yellow-600;
+  }
+  .status-zero {
+    @apply status-pill bg-red-50 text-red-600;
+  }
+}
