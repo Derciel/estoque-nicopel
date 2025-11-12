@@ -1,7 +1,7 @@
 ---
 // src/pages/itens/detalhes/[id].astro
 import Layout from '../../../layouts/Layout.astro';
-import { supabase } from '../../../lib/supabase';
+import { supabase } from '$lib/supabase';
 
 const user = Astro.locals.user;
 const { id } = Astro.params;
