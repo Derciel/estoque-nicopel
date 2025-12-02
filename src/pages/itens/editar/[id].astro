@@ -1,143 +1,197 @@
 ---
-// src/pages/clientes/detalhes/[id].astro
+// src/pages/itens/editar/[id].astro
 import Layout from '../../../layouts/Layout.astro';
-import { supabase } from '../../../lib/supabase';
+import { supabase } from '$lib/supabase';
 import Header from '../../../components/Header.astro';
 
-// Autenticação
+export const prerender = false;
+
 const user = Astro.locals.user;
+const { id: produtoId } = Astro.params;
+
+// 1. Segurança
 if (!user) return Astro.redirect('/login');
 
-// --- BUSCA DE DADOS ---
-const { id: clienteId } = Astro.params;
+let errorMessage: string | null = null;
+const successMessage = Astro.url.searchParams.get('success');
 
-// 1. Dados do Cliente (Apenas para exibir no topo)
-const { data: cliente, error: errorCliente } = await supabase
-  .from('clientes')
-  .select('id, nome, cnpj, email, telefone, endereco')
-  .eq('id', clienteId)
-  .single();
+// --- DEBUG: Verificar o ID chegando ---
+console.log(`[Editar Item] Tentando carregar produto ID: ${produtoId}`);
 
-// 2. Produtos (Caixas) deste Cliente
-const { data: produtos, error: errorProdutos } = await supabase
-  .from('produtos')
-  .select('*')
-  .eq('cliente_id', clienteId)
-  .eq('ativo', true)
-  .order('nome');
+// --- 2. BUSCA DE DADOS (GET) ---
+const { data: produto, error } = await supabase
+  .from('produtos')
+  .select('*, clientes!produtos_cliente_id_fkey (id, nome)') 
+  .eq('id', produtoId)
+  .single();
 
-if (!cliente) {
-  return Astro.redirect('/clientes?error=Cliente não encontrado');
+// Se der erro na busca, mostra no terminal e na tela
+if (error || !produto) {
+  console.error('[Editar Item] Erro ao buscar:', error);
+  return Astro.redirect('/itens?error=Erro ao localizar item. Verifique as permissões.');
 }
 
-// --- FUNÇÃO DE STATUS (FIXA PARA O TAILWIND NÃO SUMIR) ---
-function getStatus(stock, minStock) {
-  // Definimos as classes completas aqui dentro para garantir que funcionem
-  if (stock === 0) {
-    return { 
-      text: 'Sem Estoque', 
-      classes: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200' 
-    };
-  }
-  if (stock <= minStock) {
-    return { 
-      text: 'Estoque Baixo', 
-      classes: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200' 
-    };
-  }
-  return { 
-    text: 'Em Estoque', 
-    classes: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200' 
-  };
+// Buscar lista de clientes para o dropdown (caso queira trocar o dono)
+const { data: clientes } = await supabase.from('clientes').select('id, nome').order('nome');
+
+// --- LÓGICA DO BOTÃO VOLTAR ---
+// Se tem cliente, volta para os detalhes do cliente. Se não, lista de itens.
+const linkVoltar = produto.cliente_id 
+  ? `/clientes/detalhes/${produto.cliente_id}` 
+  : '/itens';
+
+const textoVoltar = produto.cliente_id 
+  ? `Voltar para Caixas de ${produto.clientes?.nome}` 
+  : 'Voltar para Lista de Itens';
+
+
+// --- 3. LÓGICA DE SALVAR (POST) ---
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    const nome = formData.get('nome')?.toString();
+    const categoria = formData.get('categoria')?.toString();
+
+    if (!nome || !categoria) throw new Error('Nome e Categoria são obrigatórios.');
+    
+    const updatedProduct = {
+      nome,
+      categoria,
+      descricao: formData.get('descricao')?.toString() || null,
+      codigo_barras: formData.get('codigo_barras')?.toString() || null,
+      estoque_atual: Number(formData.get('estoque_atual')) || 0,
+      estoque_minimo: Number(formData.get('estoque_minimo')) || 0,
+      unidade_medida: formData.get('unidade_medida')?.toString() || 'UN',
+      localizacao: formData.get('localizacao')?.toString() || null,
+      observacoes: formData.get('observacoes')?.toString() || null,
+      cliente_id: formData.get('cliente_id') === '' ? null : formData.get('cliente_id'),
+      ativo: formData.get('ativo') === 'on',
+      updated_at: new Date(),
+    };
+
+    const { error: updateError } = await supabase
+      .from('produtos')
+      .update(updatedProduct)
+      .eq('id', produtoId);
+
+    if (updateError) throw updateError;
+
+    // ✅ SUCESSO: Recarrega a mesma página
+    return Astro.redirect(`/itens/editar/${produtoId}?success=true`);
+
+  } catch (error: any) {
+    console.error('[Editar Item] Erro ao salvar:', error.message);
+    errorMessage = error.message;
+  }
 }
 ---
 
-<Layout title={`Detalhes de ${cliente.nome}`} user={user}>
+<Layout title={`Editar ${produto.nome}`} user={user}>
   <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-
-        <Header user={user} />
+    
+        <Header user={user} />
 
     <main class="p-6">
-      <div class="max-w-7xl mx-auto">
-        
-                <nav class="flex mb-6" aria-label="Breadcrumb">
-          <ol class="flex items-center space-x-2">
-            <li><a href="/clientes" class="text-gray-500 hover:text-gray-700">Clientes</a></li>
-            <li><svg class="flex-shrink-0 h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path></svg></li>
-            <li><span class="text-gray-700 font-medium">{cliente.nome}</span></li>
-          </ol>
-        </nav>
+      <div class="max-w-4xl mx-auto">
+        
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-2xl font-bold text-gray-900">Editar Item</h2>
+            <p class="text-sm text-gray-500">Produto: {produto.nome}</p>
+          </div>
+          
+          <a href={linkVoltar} class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition shadow-sm">
+            <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+            {textoVoltar}
+          </a>
+        </div>
 
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-bold text-gray-900">{cliente.nome}</h2>
-                        <a href={`/clientes/editar/${cliente.id}`} class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
-              Editar Dados do Cliente
-            </a>
-          </div>
-          <dl class="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-2">
-            <div><dt class="text-sm font-medium text-gray-500">CNPJ</dt><dd class="text-sm text-gray-900">{cliente.cnpj}</dd></div>
-            <div><dt class="text-sm font-medium text-gray-500">Email</dt><dd class="text-sm text-gray-900">{cliente.email || 'N/A'}</dd></div>
-            <div><dt class="text-sm font-medium text-gray-500">Telefone</dt><dd class="text-sm text-gray-900">{cliente.telefone || 'N/A'}</dd></div>
-          </dl>
-        </div>
+        {successMessage && (
+          <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg relative mb-6 flex items-center gap-2 shadow-sm" role="alert">
+             <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+             <span class="font-medium">Item salvo com sucesso!</span>
+          </div>
+        )}
 
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-200">
-          <div class="p-6 border-b border-gray-200 flex justify-between items-center">
-          	<h3 class="text-lg font-semibold text-gray-900">Caixas (Itens) deste Cliente</h3>
-                      </div>
+        {errorMessage && (
+          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6 flex items-center gap-2" role="alert">
+             <span class="font-bold">Erro:</span> {errorMessage}
+          </div>
+        )}
 
-          <div class="overflow-x-auto">
-          	<table class="w-full">
-              <thead>
-                <tr class="border-b border-gray-200 bg-gray-50">
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Produto</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Categoria</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Estoque</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Mínimo</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Status</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {produtos && produtos.length > 0 ? produtos.map(produto => {
-                  // Calcula o status para este produto
-                  const status = getStatus(produto.estoque_atual, produto.estoque_minimo);
-                  return (
-                    <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                      <td class="py-4 px-6 font-medium text-gray-900">{produto.nome}</td>
-                      <td class="py-4 px-6 text-sm text-gray-600">{produto.categoria}</td>
-                      <td class="py-4 px-6 text-sm text-gray-800">{produto.estoque_atual} {produto.unidade_medida}</td>
-                      <td class="py-4 px-6 text-sm text-gray-800">{produto.estoque_minimo}</td>
-                      
-                      <td class="py-4 px-6">
-                        <span class={status.classes}>
-                          {status.text}
-                        </span>
-                      </td>
+          	  <form method="POST" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+  	    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  	      <div class="space-y-4">
+  	        <div>
+  	          <label class="block text-sm font-medium text-gray-700 mb-1">Nome do Produto <span class="text-red-500">*</span></label>
+  	          <input type="text" name="nome" required value={produto.nome} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	        </div>
+  	        <div>
+  	          <label class="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+  	          <textarea name="descricao" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">{produto.descricao}</textarea>
+  	        </div>
+  	        <div>
+  	          <label class="block text-sm font-medium text-gray-700 mb-1">Categoria <span class="text-red-500">*</span></label>
+  	          <input type="text" name="categoria" required value={produto.categoria} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	        </div>
+  	        <div>
+  	          <label class="block text-sm font-medium text-gray-700 mb-1">Código de Barras (SKU)</label>
+  	          <input type="text" name="codigo_barras" value={produto.codigo_barras} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	        </div>
+  	      </div>
 
-                                            <td class="py-4 px-6">
-                        <a href={`/itens/editar/${produto.id}`} title="Editar esta Caixa" class="text-gray-500 hover:text-blue-600 transition">
-                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                          </svg>
-                        </a>
-                      </td>
-                    </tr>
-                  );
-                }) : (
-                  <tr>
-                    <td colspan="6" class="py-8 px-6 text-center text-gray-500">
-                      Nenhuma caixa encontrada para este cliente.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+  	      <div class="space-y-4">
+  	        <div class="grid grid-cols-2 gap-4">
+  	          <div>
+  	            <label class="block text-sm font-medium text-gray-700 mb-1">Estoque Atual</label>
+  	            <input type="number" name="estoque_atual" value={produto.estoque_atual} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	          </div>
+  	          <div>
+  	            <label class="block text-sm font-medium text-gray-700 mb-1">Estoque Mínimo</label>
+                <input type="number" name="estoque_minimo" value={produto.estoque_minimo} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	          </div>
+  	        </div>
+            
+  	        <div>
+  	          <label class="block text-sm font-medium text-gray-700 mb-1">Unidade</label>
+  	          <input type="text" name="unidade_medida" value={produto.unidade_medida} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	        </div>
+  	        <div>
+  	          <label class="block text-sm font-medium text-gray-700 mb-1">Localização</label>
+  	          <input type="text" name="localizacao" value={produto.localizacao} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	        </div>
+  	      </div>
+  	    </div>
 
-      </div>
-    </main>
+  	    <div class="mt-6 space-y-4">
+  	      <div>
+  	        <label class="block text-sm font-medium text-gray-700 mb-1">Cliente Associado</label>
+  	        <select name="cliente_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+  	          <option value="">Nenhum (Orfão)</option>
+  	          {clientes && clientes.map(c => (
+  	            <option value={c.id} selected={c.id === produto.cliente_id}>{c.nome}</option>
+  	          ))}
+  	        </select>
+  	      </div>
+          
+          <div>
+            <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <input type="checkbox" name="ativo" checked={produto.ativo} class="rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500">
+              Produto Ativo
+            </label>
+          </div>
+  	    </div>
+
+  	    <div class="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-200">
+            	      <a href={linkVoltar} class="bg-gray-100 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-200 transition font-medium">Cancelar</a>
+          
+  	      <button type="submit" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition font-medium flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            Salvar Alterações
+          </button>
+  	    </div>
+  	  </form>
+  	</div>
+  </main>
   </div>
 </Layout>
