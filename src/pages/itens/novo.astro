@@ -1,163 +1,239 @@
 ---
+// src/pages/itens/novo.astro
 import Layout from '../../layouts/Layout.astro';
-import { supabase } from '$lib/supabase';
+import { supabase } from '../../lib/supabase';
 import Navbar from '../../components/Navbar.astro';
 
-const user = Astro.locals.user;
-if (!user) {
-  return Astro.redirect('/login');
-}
+// 1. Verificação de Sessão
+const { data: { user } } = await supabase.auth.getUser();
+if (!user) return Astro.redirect('/login');
 
+// 2. Busca e Normalização de Perfil
+const { data: userProfile } = await supabase
+  .from('profiles')
+  .select('role, nome')
+  .eq('id', user.id)
+  .single();
+
+const userData = {
+  ...user,
+  profile: userProfile || { role: 'visitante', nome: 'Usuário' }
+};
+
+const userName = userProfile?.nome || 'Usuário';
+// Normalização para garantir permissão
+const rawRole = userProfile?.role || 'visitante';
+const userRole = String(rawRole).toLowerCase().replace('_', ' ').trim();
+const userAvatar = userName.charAt(0).toUpperCase();
 const currentPath = Astro.url.pathname;
-const userRole = user.profile?.role ?? 'Visitante';
-const podeCadastrarItem = ['admin', 'Estoquista_Entrada'].includes(userRole);
 
-let errorMessage: string | null = null;
-let successMessage: string | null = null;
+// 3. Verificação de Permissão (Quem pode cadastrar?)
+// Admin, Super Admin e Estoquista de Entrada podem cadastrar itens
+const allowedRoles = ['admin', 'super admin', 'estoquista entrada', 'estoquista_entrada'];
+const podeCadastrarItem = allowedRoles.includes(userRole);
 
-if (Astro.request.method === 'POST' && podeCadastrarItem) {
-  try {
-    const formData = await Astro.request.formData();
-    const nome = formData.get('nome')?.toString();
-    const categoria = formData.get('categoria')?.toString();
-    const cliente_id = formData.get('cliente_id')?.toString();
+let errorMessage = null;
+let successMessage = null;
 
-    if (!nome || !categoria || !cliente_id) {
-      throw new Error('Cliente, Nome do Item e Categoria são obrigatórios.');
+// 4. Lógica de Cadastro (POST)
+if (Astro.request.method === 'POST') {
+  if (!podeCadastrarItem) {
+    errorMessage = 'Você não tem permissão para realizar esta ação.';
+  } else {
+    try {
+      const formData = await Astro.request.formData();
+      const nome = formData.get('nome')?.toString();
+      const categoria = formData.get('categoria')?.toString();
+      const cliente_id = formData.get('cliente_id')?.toString();
+      const estoque_atual = Number(formData.get('estoque_atual')) || 0;
+      const estoque_minimo = Number(formData.get('estoque_minimo')) || 0;
+
+      if (!nome || !categoria || !cliente_id) {
+        throw new Error('Cliente, Nome e Categoria são obrigatórios.');
+      }
+
+      const { error } = await supabase.from('produtos').insert({
+        nome,
+        categoria,
+        cliente_id,
+        estoque_atual,
+        estoque_minimo,
+        ativo: true
+      });
+
+      if (error) throw error;
+
+      successMessage = 'Item cadastrado com sucesso! Redirecionando...';
+    } catch (error: any) {
+      console.error('Erro ao cadastrar:', error.message);
+      errorMessage = `Erro ao salvar: ${error.message}`;
     }
-
-    const newProduct = {
-      nome,
-      categoria,
-      cliente_id,
-      estoque_atual: Number(formData.get('estoque_atual')) || 0,
-      estoque_minimo: Number(formData.get('estoque_minimo')) || 0
-    };
-
-    const { error } = await supabase.from('produtos').insert(newProduct);
-    if (error) throw error;
-
-    successMessage = 'Item salvo com sucesso! Redirecionando para o itens...';
-  } catch (error: any) {
-    console.error('Erro ao criar produto:', error.message);
-    errorMessage = `Erro ao salvar: ${error.message}`;
   }
 }
 ---
 
-<Layout title="Novo Item" user={user}>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+<Layout title="Novo Item" user={userData}>
+  <div class="min-h-screen bg-gray-50 flex flex-col">
+    
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-16 w-auto" />
+        </div>
 
-    <!-- ✅ Navbar -->
-    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
-      <div class="px-6 py-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-8">
-            <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              EstoquePro
-            </h1>
-            <Navbar user={user} currentPath={currentPath} />
-          </div>
+        <div class="flex-grow flex justify-center">
+            <Navbar user={userData} currentPath={currentPath} />
+        </div>
+        
+        <div class="flex-shrink-0 relative group ml-6">
+            <button class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
+            </button>
+            
+            <div class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                            Sair do Sistema
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
       </div>
     </header>
 
-    <main class="p-6">
-      <div class="max-w-2xl mx-auto">
-
-        <h2 class="text-2xl font-bold text-gray-900 mb-6">Cadastrar Novo Item</h2>
+    <main class="p-6 max-w-2xl mx-auto w-full">
+        
+        <nav class="flex mb-6" aria-label="Breadcrumb">
+          <ol class="flex items-center space-x-2">
+            <li>
+              <a href="/itens" class="text-gray-500 hover:text-blue-600 transition-colors">Itens</a>
+            </li>
+            <li>
+              <svg class="flex-shrink-0 h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+              </svg>
+            </li>
+            <li>
+              <span class="text-gray-700 font-medium">Novo Cadastro</span>
+            </li>
+          </ol>
+        </nav>
 
         {errorMessage && (
-          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2" role="alert">
-            <svg class="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M18.364 5.636l-1.414 1.414L12 12l-4.95-4.95L5.636 7.05 12 13.414l6.364-6.364z" />
-            </svg>
-            <span>{errorMessage}</span>
+          <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm mb-6 flex gap-3 items-center">
+            <svg class="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>
+            <div>
+                <p class="text-sm text-red-700 font-bold">Erro</p>
+                <p class="text-sm text-red-600">{errorMessage}</p>
+            </div>
           </div>
         )}
 
         {successMessage && (
-          <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2" role="alert">
-            <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8.007 8.007a1 1 0 01-1.414 0L3.293 10.707a1 1 0 111.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-            </svg>
-            <span>{successMessage}</span>
+          <div class="bg-green-50 border-l-4 border-green-500 p-4 rounded-md shadow-sm mb-6 flex gap-3 items-center" role="alert">
+            <svg class="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+            <div>
+                <p class="text-sm text-green-700 font-bold">Sucesso!</p>
+                <p class="text-sm text-green-600">{successMessage}</p>
+            </div>
           </div>
         )}
 
         {podeCadastrarItem ? (
-          <form method="POST" class="bg-white rounded-2xl border border-gray-200 p-8 space-y-6" id="form-itens">
+            <form method="POST" class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6">
+                <div class="border-b border-gray-100 pb-4 mb-4">
+                    <h2 class="text-2xl font-bold text-gray-900">Cadastrar Novo Item</h2>
+                    <p class="text-sm text-gray-500">Adicione um novo produto ao catálogo do sistema.</p>
+                </div>
 
-            <div>
-              <label for="selected-client-name" class="block text-sm font-medium text-gray-700 mb-1">Cliente <span class="text-red-500">*</span></label>
-              <div class="flex gap-2">
-                <input 
-                  type="text" 
-                  id="selected-client-name" 
-                  placeholder="Clique na lupa para buscar..." 
-                  readonly 
-                  class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 cursor-pointer"
-                >
-                <input type="hidden" name="cliente_id" id="cliente_id" required>
-                <button type="button" id="open-client-modal" class="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                </button>
-              </div>
-            </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Cliente <span class="text-red-500">*</span></label>
+                    <div class="flex gap-2">
+                        <input type="text" id="selected-client-name" placeholder="Clique na lupa para buscar..." readonly class="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-gray-50 text-gray-600 cursor-pointer focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                        <input type="hidden" name="cliente_id" id="cliente_id" required>
+                        <button type="button" id="open-client-modal" class="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </button>
+                    </div>
+                </div>
 
-            <div>
-              <label for="nome" class="block text-sm font-medium text-gray-700 mb-1">Nome do Item <span class="text-red-500">*</span></label>
-              <input type="text" name="nome" id="nome" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:outline-none">
-            </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="nome" class="block text-sm font-medium text-gray-700 mb-1">Nome do Item <span class="text-red-500">*</span></label>
+                        <input type="text" name="nome" id="nome" required class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                    </div>
+                    <div>
+                        <label for="categoria" class="block text-sm font-medium text-gray-700 mb-1">Categoria <span class="text-red-500">*</span></label>
+                        <input type="text" name="categoria" id="categoria" required placeholder="Ex: Papelaria, Limpeza..." class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                    </div>
+                </div>
 
-            <div>
-              <label for="categoria" class="block text-sm font-medium text-gray-700 mb-1">Categoria <span class="text-red-500">*</span></label>
-              <input type="text" name="categoria" id="categoria" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:outline-none">
-            </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="estoque_atual" class="block text-sm font-medium text-gray-700 mb-1">Estoque Inicial</label>
+                        <input type="number" name="estoque_atual" id="estoque_atual" value="0" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                    </div>
+                    <div>
+                        <label for="estoque_minimo" class="block text-sm font-medium text-gray-700 mb-1">Estoque Mínimo (Alerta)</label>
+                        <input type="number" name="estoque_minimo" id="estoque_minimo" value="5" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                    </div>
+                </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label for="estoque_atual" class="block text-sm font-medium text-gray-700 mb-1">Estoque Atual</label>
-                <input type="number" name="estoque_atual" id="estoque_atual" value="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:outline-none">
-              </div>
-              <div>
-                <label for="estoque_minimo" class="block text-sm font-medium text-gray-700 mb-1">Estoque Mínimo</label>
-                <input type="number" name="estoque_minimo" id="estoque_minimo" value="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:outline-none">
-              </div>
-            </div>
-
-            <div class="flex justify-end gap-4 pt-6 border-t border-gray-200">
-              <a href="/itens" class="bg-gray-100 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-200 transition">Cancelar</a>
-              <button type="submit" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition">Salvar Item</button>
-            </div>
-          </form>
+                <div class="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-100">
+                    <a href="/itens" class="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors">Cancelar</a>
+                    <button type="submit" class="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                        Cadastrar Item
+                    </button>
+                </div>
+            </form>
         ) : (
-          <div class="text-center mt-12 bg-yellow-100 text-yellow-800 border border-yellow-300 px-4 py-6 rounded-xl">
-            Você não tem permissão para cadastrar novos itens.
-          </div>
+            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md shadow-sm">
+                <div class="flex">
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-700">Você não tem permissão para cadastrar novos itens.</p>
+                    </div>
+                </div>
+            </div>
         )}
-      </div>
     </main>
 
-    <!-- Modal para busca de cliente -->
-    <div id="client-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 hidden z-50">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-        <div class="flex justify-between items-center p-6 border-b border-gray-200">
-          <h3 class="text-lg font-bold text-gray-900">Buscar Cliente</h3>
-          <button type="button" id="close-client-modal" class="text-gray-400 hover:text-gray-600">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    <div id="client-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50 transition-opacity">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg transform transition-all scale-100">
+        <div class="flex justify-between items-center p-6 border-b border-gray-100">
+          <h3 class="text-lg font-bold text-gray-800">Selecionar Cliente</h3>
+          <button type="button" id="close-client-modal" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div class="p-6">
-          <input 
-            type="text" 
-            id="client-search-input" 
-            placeholder="Digite o nome ou CNPJ..." 
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:outline-none"
-          >
-          <div id="client-search-results" class="mt-4 max-h-60 overflow-y-auto space-y-2"></div>
+          <div class="relative">
+              <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              </span>
+              <input 
+                type="text" 
+                id="client-search-input" 
+                placeholder="Digite o nome ou CNPJ..." 
+                class="w-full border border-gray-300 rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+          </div>
+          <div id="client-search-results" class="mt-4 max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar"></div>
         </div>
       </div>
     </div>
@@ -175,65 +251,67 @@ if (Astro.request.method === 'POST' && podeCadastrarItem) {
     const clientIdInput = document.getElementById('cliente_id');
 
     if (openModalBtn) {
-      openModalBtn.addEventListener('click', () => {
-        modal.classList.remove('hidden');
-        searchInput.focus();
-        performSearch('');
-      });
+        openModalBtn.addEventListener('click', () => {
+            modal?.classList.remove('hidden');
+            searchInput?.focus();
+            performSearch('');
+        });
     }
-
-    closeModalBtn?.addEventListener('click', () => modal.classList.add('hidden'));
+    
+    closeModalBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
     modal?.addEventListener('click', (e) => {
-      if (e.target === modal) modal.classList.add('hidden');
+        if (e.target === modal) modal.classList.add('hidden');
     });
 
     let searchTimeout;
     searchInput?.addEventListener('keyup', (e) => {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => performSearch(e.target.value), 300);
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => performSearch(e.target.value), 300);
     });
 
     async function performSearch(query) {
-      searchResults.innerHTML = '<p class="text-gray-500">Buscando...</p>';
-      const { data, error } = await supabase
-        .from('clientes')
-        .select('id, nome, cnpj')
-        .or(`nome.ilike.%${query}%,cnpj.ilike.%${query}%`)
-        .limit(10);
+        if (!searchResults) return;
+        searchResults.innerHTML = '<p class="text-gray-500 text-center py-4">Buscando...</p>';
+        
+        const { data, error } = await supabase
+            .from('clientes')
+            .select('id, nome, cnpj')
+            .or(`nome.ilike.%${query}%,cnpj.ilike.%${query}%`)
+            .limit(10);
 
-      if (error) {
-        searchResults.innerHTML = '<p class="text-red-500">Erro ao buscar.</p>';
-        return;
-      }
+        if (error) {
+            searchResults.innerHTML = '<p class="text-red-500 text-center py-2">Erro ao buscar.</p>';
+            return;
+        }
 
-      if (data.length === 0) {
-        searchResults.innerHTML = '<p class="text-gray-500">Nenhum cliente encontrado.</p>';
-        return;
-      }
+        if (!data || data.length === 0) {
+            searchResults.innerHTML = '<p class="text-gray-500 text-center py-4">Nenhum cliente encontrado.</p>';
+            return;
+        }
 
-      searchResults.innerHTML = '';
-      data.forEach(client => {
-        const el = document.createElement('div');
-        el.className = 'p-3 border rounded-lg hover:bg-gray-100 cursor-pointer';
-        el.innerHTML = `<p class="font-medium">${client.nome}</p><p class="text-sm text-gray-600">${client.cnpj}</p>`;
-        el.addEventListener('click', () => selectClient(client));
-        searchResults.appendChild(el);
-      });
+        searchResults.innerHTML = '';
+        data.forEach(client => {
+            const el = document.createElement('div');
+            el.className = 'p-3 border border-gray-100 rounded-xl hover:bg-blue-50 hover:border-blue-200 cursor-pointer transition-all group';
+            el.innerHTML = `
+                <p class="font-bold text-gray-800 group-hover:text-blue-700">${client.nome}</p>
+                <p class="text-xs text-gray-500">${client.cnpj || 'Sem CNPJ'}</p>
+            `;
+            el.addEventListener('click', () => {
+                if(clientNameInput) clientNameInput.value = client.nome;
+                if(clientIdInput) clientIdInput.value = client.id;
+                modal?.classList.add('hidden');
+            });
+            searchResults.appendChild(el);
+        });
     }
 
-    function selectClient(client) {
-      clientNameInput.value = client.nome;
-      clientIdInput.value = client.id;
-      modal.classList.add('hidden');
-    }
-
-    window.addEventListener('DOMContentLoaded', () => {
-      const successBox = document.querySelector('[role="alert"].bg-green-100');
-      if (successBox) {
+    // Redirecionamento automático ao sucesso
+    const successAlert = document.querySelector('[role="alert"]');
+    if (successAlert) {
         setTimeout(() => {
-          window.location.href = '/itens';
+            window.location.href = '/itens';
         }, 2000);
-      }
-    });
+    }
   </script>
 </Layout>

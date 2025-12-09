@@ -2,6 +2,7 @@
 // src/pages/clientes.astro
 import Layout from '../layouts/Layout.astro';
 import { supabase } from '../lib/supabase';
+import { supabaseAdmin } from '../../lib/supabase-admin';
 import Navbar from '../components/Navbar.astro';
 import '../styles/global.css';
 
@@ -16,13 +17,13 @@ const userAvatar = userName.charAt(0).toUpperCase() || '#';
 const currentPath = Astro.url.pathname;
 
 // --- PERMISSÕES ---
-const canSeeItens = ['Administrador', 'Estoquista_Entrada', 'Estoquista_Saida'].includes(userRole);
-const canSeeClientes = ['Administrador', 'Estoquista_Saida', 'Estoquista_Entrada'].includes(userRole);
-const canSeeEntrada = ['Administrador', 'Estoquista_Entrada'].includes(userRole);
-const canSeeSaida = ['Administrador', 'Estoquista_Saida'].includes(userRole);
-const canSeeRelatorios = ['Administrador'].includes(userRole);
-const canSeeImportacao = ['Administrador'].includes(userRole);
-const canSeeConfig = ['Administrador'].includes(userRole);
+const canSeeItens = ['Super Admin'].includes(userRole);
+const canSeeClientes = ['Super Admin'].includes(userRole);
+const canSeeEntrada = ['Super Admin', 'estoquista_entrada'].includes(userRole);
+const canSeeSaida = ['Super Admin', 'Estoquista_Saida'].includes(userRole);
+const canSeeRelatorios = ['Super Admin'].includes(userRole);
+const canSeeImportacao = ['Super Admin'].includes(userRole);
+const canSeeConfig = ['Super Admin'].includes(userRole);
 
 // Consulta de clientes
 const { data: clientes, error: errorClientes } = await supabase

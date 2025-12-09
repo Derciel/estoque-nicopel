@@ -1,16 +1,28 @@
 ---
+// src/pages/importacao.astro
 import Layout from '../layouts/Layout.astro';
-import { supabase } from '$lib/supabase';
+import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar.astro';
 
-const user = Astro.locals.user;
+// 1. Autenticação e Perfil
+const { data: { user } } = await supabase.auth.getUser();
 if (!user) return Astro.redirect('/login');
 
-const userName = user.profile?.name ?? 'Usuário';
-const userRole = user.profile?.role ?? 'Visitante';
-const userAvatar = userName.charAt(0).toUpperCase() || '#';
+const { data: userProfile } = await supabase.from('profiles').select('role, nome').eq('id', user.id).single();
+
+const userData = { ...user, profile: userProfile };
+const userName = userProfile?.nome || 'Usuário';
+const userRole = String(userProfile?.role || 'visitante').toLowerCase().replace('_', ' ').trim();
+const userAvatar = userName.charAt(0).toUpperCase();
 const currentPath = Astro.url.pathname;
 
+// 2. Permissão (Apenas Master pode importar)
+const masterRoles = ['admin', 'super admin'];
+if (!masterRoles.includes(userRole)) {
+  return Astro.redirect('/dashboard?error=sem_permissao_importacao');
+}
+
+// 3. Buscar Histórico de Importações
 const { data: importacoes } = await supabase
   .from('importacoes')
   .select('*')
@@ -18,342 +30,276 @@ const { data: importacoes } = await supabase
   .limit(10);
 ---
 
-<Layout title="Importação de Dados" user={user}>
+<Layout title="Importação de Dados" user={userData}>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+  <div class="min-h-screen bg-gray-50 flex flex-col">
 
-    <!-- ✅ NAVBAR REUTILIZÁVEL -->
-    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 w-full">
-      <div class="max-w-7xl mx-auto px-6 py-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-8">
-          <img src=https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-20 w-auto mr-4" />
-            </h1>
-            <Navbar user={user} currentPath={currentPath} />
-          </div>
-
-          <!-- ✅ Perfil com Dropdown -->
-          <div class="relative" id="profile-menu-container">
-            <button id="profile-menu-button" class="flex items-center gap-3 cursor-pointer">
-              <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-                <span class="text-white text-sm font-medium">{userAvatar}</span>
-              </div>
-              <div class="hidden sm:block">
-                <p class="text-sm font-medium text-gray-900">{userName}</p>
-                <p class="text-xs text-gray-500">{userRole}</p>
-              </div>
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="logo" class="h-16 w-auto" />
+        </div>
+        <div class="flex-grow flex justify-center">
+            <Navbar user={userData} currentPath={currentPath} />
+        </div>
+        <div class="flex-shrink-0 relative group ml-6">
+            <button class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
             </button>
-            <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
-              <div class="px-4 py-2 border-b border-gray-100">
-                <p class="text-sm font-medium text-gray-900 truncate">{userName}</p>
-                <p class="text-xs text-gray-500 truncate">{user.email}</p>
-              </div>
-              <a href="/api/auth/signout" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-                <span>Sair</span>
-              </a>
+            <div class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">Sair</button>
+                    </form>
+                </div>
             </div>
-          </div>
         </div>
       </div>
     </header>
-  	  	<main id="main-importer" class="p-6" data-userid={user.id}>
-  	  <div class="max-w-7xl mx-auto">
-  	  	<div class="flex items-center justify-between mb-8">
-  	  	  <div>
-  	  	  	<h2 class="text-3xl font-bold text-gray-900">Importação de Clientes e Produtos</h2>
-  	  	  	<p class="text-gray-600 mt-2">Importe um cliente e todos os seus produtos de uma só vez.</p>
-  	  	  </div>
-  	  	</div>
 
-  	  	<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  	  	    	  	  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-6">
-  	  	  	<div>
-  	  	  	  <label class="block text-sm font-medium text-gray-700 mb-2">Selecione o arquivo (XLSX, CSV)</label>
-  	  	  	  <div id="dropzone" class="flex justify-center items-center w-full px-6 py-10 border-2 border-gray-300 border-dashed rounded-lg text-center cursor-pointer hover:bg-gray-50">
-  	  	  	  	<input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls, .csv">
-  	  	  	  	<div>
-  	  	  	  	  <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-  	  	  	  	  	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/>
-  	  	  	  	  </svg>
-  	  	  	  	  <p class="mt-2 text-sm text-gray-600">
-  	  	  	  	  	Arraste o arquivo ou <span class="font-medium text-blue-600">clique para selecionar</span>
-  	  	  	  	  </p>
-  	  	  	  	  <p id="fileName" class="text-sm text-gray-500 mt-1"></p>
-  	  	  	  	</div>
-  	  	  	  </div>
-  	  	  	</div>
-  	  	  	
-  	  	  	  	  	  	<button id="processButton" class="w-full bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium flex items-center justify-center gap-2" disabled>
-  	  	  	  Processar Arquivo
-  	  	  	</button>
+    <main id="main-importer" class="p-6 max-w-7xl mx-auto w-full space-y-8" data-userid={user.id}>
+      
+      <div>
+        <h2 class="text-3xl font-bold text-gray-900">Importação em Massa</h2>
+        <p class="text-gray-500 mt-1">Importe clientes e produtos via planilha Excel/CSV.</p>
+      </div>
 
-  	  	  	  	  	  	<div id="loadingSpinner" class="hidden flex justify-center items-center gap-3">
-  	  	  	  <svg class="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-  	  	  	    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-  	  	  	    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-  	  	  	  </svg>
-  	  	  	  <span class="text-gray-700">Processando...</span>
-  	  	  	</div>
-
-  	  	  	  	  	  	<div id="resultsArea" class="hidden p-4 bg-gray-50 rounded-lg border border-gray-200">
-  	  	  	    	  	  	</div>
-  	  	  	
-  	  	  	  	  	  	<button id="confirmButton" class="hidden w-full bg-green-600 text-white px-6 py-3 rounded-xl hover:bg-green-700 transition-colors font-medium">
-  	  	  	  Confirmar e Salvar no Banco
-  	  	  	</button>
-  	  	  </div>
-  	  	  
-  	  	    	  	  <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-4">
-  	  	  	<h3 class="text-lg font-bold text-gray-900">Como Preparar seu Arquivo</h3>
-  	  	  	<p class="text-sm text-gray-700">O arquivo deve conter um produto por linha, com as informações do cliente repetidas em cada linha.</p>
-  	  	  	<p class="text-sm text-gray-700">O CNPJ é o identificador único do cliente.</p>
-  	  	  	<ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
-  	  	  	  <li><strong>cliente</strong> (Obrigatório)</li>
-  	  	  	  <li><strong>cnpj</strong> (Obrigatório, usado como ID)</li>
-  	  	  	  <li>email</li>
-  	  	  	  <li>telefone</li>
-  	  	  	  <li><strong>produtos</strong> (Obrigatório)</li>
-  	  	  	  <li><strong>categoria</strong> (Obrigatório)</li>
-  	  	  	  <li><strong>estoque inicial</strong> (com espaço)</li>
-  	  	  	  <li><strong>estoque minimo</strong> (com espaço)</li>
-  	  	  	</ul>
-  	  	  </div>
-
-  	  	    	  	  <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200">
-  	  	  	<h3 class="text-lg font-semibold text-gray-900 p-6 border-b border-gray-200">Histórico de Importações</h3>
-  	  	  	<div class="overflow-x-auto">
-  	  	  	<table class="w-full">
-              <thead>
-                <tr class="border-b border-gray-200">
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Data</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Arquivo</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Tipo</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Status</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Registros</th>
-                </tr>
-              </thead>
-  	  	  	  <tbody>
-  	  	  	  	{importacoes && importacoes.length > 0 ? importacoes.map(imp => (
-  	  	  	  	  <tr class="border-b border-gray-100 hover:bg-gray-50">
-  	  	  	  	  	<td class="py-4 px-6 text-sm text-gray-600">{new Date(imp.created_at).toLocaleString('pt-BR')}</td>
-  	  	  	  	  	<td class="py-4 px-6 text-sm font-medium text-gray-800">{imp.nome_arquivo}</td>
-  	  	  	  	  	<td class="py-4 px-6 text-sm text-gray-600">{imp.tipo_importacao}</td>
-  	  	  	  	  	<td class="py-4 px-6">
-  	  	  	  	  	  {imp.erros ? (
-  	  	  	  	  	  	<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-red-600 bg-red-50">
-  	  	  	  	  	  	  Falha
-  	  	  	  	  	  	</span>
-  	  	  	  	  	  ) : (
-  	  	  	  	  	  	<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-green-600 bg-green-50">
-  	  	  	  	  	  	  Sucesso
-  	  	  	  	  	  	</span>
-  	  	  	  	  	  )}
-  	  	  	  	  	</td>
-  	  	  	  	  	<td class="py-4 px-6 text-sm text-gray-600">{imp.registros_importados} / {imp.total_registros}</td>
-  	  	  	  	  </tr>
-  	  	  	  	)) : (
-  	  	  	  	  <tr>
-  	  	  	  	  	<td colspan="5" class="py-8 px-6 text-center text-gray-500">Nenhuma importação recente.</td>
-  	  	  	  	  </tr>
-  	  	  	  	)}
-  	  	  	  </tbody>
-  	  	  	</table>
-  	  	  	</div>
-  	  	  </div>
-
-  	  	</div>
-  	  </div>
-  	</main>
-  </div>
-
-    <script>
-  	import { supabase } from '../lib/supabase';
-
-  	const userId = document.getElementById('main-importer').dataset.userid;
-  	const fileInput = document.getElementById('fileInput');
-  	const dropzone = document.getElementById('dropzone');
-  	const fileNameEl = document.getElementById('fileName');
-  	const processButton = document.getElementById('processButton');
-  	const confirmButton = document.getElementById('confirmButton');
-  	const loadingSpinner = document.getElementById('loadingSpinner');
-  	const resultsArea = document.getElementById('resultsArea');
-  	
-  	let parsedData = []; 
-  	let currentFile = null; 
-
-  	function showLoading(message) {
-  	  loadingSpinner.classList.remove('hidden');
-  	  loadingSpinner.querySelector('span').textContent = message || 'Processando...';
-  	  processButton.disabled = true;
-  	  confirmButton.classList.add('hidden');
-  	}
-
-  	function hideLoading() {
-  	  loadingSpinner.classList.add('hidden');
-  	  processButton.disabled = false;
-  	}
-
-  	function showResults(htmlContent, showConfirm = false) {
-  	  resultsArea.innerHTML = htmlContent;
-  	  resultsArea.classList.remove('hidden');
-  	  if (showConfirm) {
-  	  	confirmButton.classList.remove('hidden');
-  	  } else {
-  	  	confirmButton.classList.add('hidden');
-  	  }
-  	}
-
-  	// --- Lógica do Dropzone (sem mudanças) ---
-  	dropzone.addEventListener('click', () => fileInput.click());
-  	dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('bg-blue-50', 'border-blue-500'); });
-  	dropzone.addEventListener('dragleave', () => dropzone.classList.remove('bg-blue-50', 'border-blue-500'));
-  	dropzone.addEventListener('drop', (e) => {
-  	  e.preventDefault();
-  	  dropzone.classList.remove('bg-blue-50', 'border-blue-500');
-  	  const files = e.dataTransfer.files;
-  	  if (files.length > 0) { fileInput.files = files; handleFileSelect(files[0]); }
-  	});
-  	fileInput.addEventListener('change', (e) => {
-  	  if (e.target.files.length > 0) { handleFileSelect(e.target.files[0]); }
-  	});
-
-  	function handleFileSelect(file) {
-  	  currentFile = file;
-  	  fileNameEl.textContent = file.name;
-  	  processButton.disabled = false;
-  	  showResults('', false);
-  	}
-
-  	// --- 1. Processar o Arquivo (Ler XLSX) ---
-  	processButton.addEventListener('click', async () => {
-  	  if (!currentFile) return;
-  	  showLoading('Lendo o arquivo...');
-  	  parsedData = [];
-
-  	  try {
-  	  	const data = await currentFile.arrayBuffer();
-  	  	const workbook = XLSX.read(data);
-  	  	const sheetName = workbook.SheetNames[0];
-  	  	const worksheet = workbook.Sheets[sheetName];
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-  	  	const json = XLSX.utils.sheet_to_json(worksheet, { raw: false }); 
-  	  	
-  	  	if (json.length === 0) throw new Error("Arquivo vazio.");
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Arquivo de Dados (.xlsx, .csv)</label>
+                <div id="dropzone" class="flex flex-col justify-center items-center w-full px-6 py-12 border-2 border-gray-300 border-dashed rounded-xl bg-gray-50 text-center cursor-pointer hover:bg-blue-50 hover:border-blue-400 transition-all group">
+                    <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls, .csv">
+                    <div class="p-4 bg-white rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+                        <svg class="h-8 w-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/></svg>
+                    </div>
+                    <p class="text-sm text-gray-600 font-medium">Clique ou arraste o arquivo aqui</p>
+                    <p id="fileName" class="text-xs text-gray-400 mt-2 h-4"></p>
+                </div>
+            </div>
+            
+            <button id="processButton" class="w-full bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-md" disabled>
+                Analisar Arquivo
+            </button>
 
-        // ✅ CORREÇÃO: Validação usa os nomes do seu CSV
-        const firstRow = json[0];
-        if (!firstRow.cnpj || !firstRow.cliente || !firstRow.produtos || !firstRow.categoria) {
-          throw new Error("Colunas obrigatórias faltando. Verifique as instruções (cliente, cnpj, produtos, categoria).");
+            <div id="loadingSpinner" class="hidden flex justify-center items-center gap-3 py-2">
+                <svg class="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span class="text-gray-600 font-medium text-sm">Processando dados...</span>
+            </div>
+
+            <div id="resultsArea" class="hidden p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm"></div>
+            
+            <button id="confirmButton" class="hidden w-full bg-green-600 text-white px-6 py-3 rounded-xl hover:bg-green-700 transition-colors font-bold shadow-md">
+                Confirmar Importação
+            </button>
+        </div>
+
+        <div class="space-y-8">
+            
+            <div class="bg-blue-50 rounded-xl border border-blue-100 p-6">
+                <h3 class="text-lg font-bold text-blue-900 flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Instruções
+                </h3>
+                <ul class="mt-4 space-y-2 text-sm text-blue-800 list-disc list-inside">
+                    <li>O arquivo deve ter cabeçalhos na primeira linha.</li>
+                    <li>Colunas obrigatórias: <strong>cliente</strong>, <strong>cnpj</strong>, <strong>produtos</strong>, <strong>categoria</strong>.</li>
+                    <li>O CNPJ é usado para identificar o cliente (evita duplicatas).</li>
+                    <li>Colunas opcionais: <strong>email</strong>, <strong>telefone</strong>, <strong>estoque inicial</strong>, <strong>estoque minimo</strong>.</li>
+                </ul>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                    <h3 class="font-bold text-gray-900">Histórico Recente</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
+                            <tr>
+                                <th class="px-6 py-3">Data</th>
+                                <th class="px-6 py-3">Arquivo</th>
+                                <th class="px-6 py-3 text-center">Status</th>
+                                <th class="px-6 py-3 text-right">Registros</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {importacoes && importacoes.length > 0 ? importacoes.map(imp => (
+                                <tr class="hover:bg-gray-50 transition">
+                                    <td class="px-6 py-3 text-gray-600">{new Date(imp.created_at).toLocaleDateString('pt-BR')}</td>
+                                    <td class="px-6 py-3 font-medium text-gray-900">{imp.nome_arquivo}</td>
+                                    <td class="px-6 py-3 text-center">
+                                        {imp.erros ? (
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Erro</span>
+                                        ) : (
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Sucesso</span>
+                                        )}
+                                    </td>
+                                    <td class="px-6 py-3 text-right text-gray-600">{imp.registros_importados} / {imp.total_registros}</td>
+                                </tr>
+                            )) : (
+                                <tr>
+                                    <td colspan="4" class="px-6 py-8 text-center text-gray-400">Nenhuma importação encontrada.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    import { supabase } from '../lib/supabase';
+
+    const userId = document.getElementById('main-importer').dataset.userid;
+    const fileInput = document.getElementById('fileInput');
+    const dropzone = document.getElementById('dropzone');
+    const fileNameEl = document.getElementById('fileName');
+    const processButton = document.getElementById('processButton');
+    const confirmButton = document.getElementById('confirmButton');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const resultsArea = document.getElementById('resultsArea');
+    
+    let parsedData = []; 
+    let currentFile = null; 
+
+    function showLoading(msg) {
+      loadingSpinner.classList.remove('hidden');
+      loadingSpinner.querySelector('span').textContent = msg;
+      processButton.disabled = true;
+      confirmButton.classList.add('hidden');
+    }
+
+    function hideLoading() {
+      loadingSpinner.classList.add('hidden');
+      processButton.disabled = false;
+    }
+
+    function showResults(html, showConfirm = false) {
+      resultsArea.innerHTML = html;
+      resultsArea.classList.remove('hidden');
+      if (showConfirm) confirmButton.classList.remove('hidden');
+      else confirmButton.classList.add('hidden');
+    }
+
+    // Drag & Drop
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-blue-500', 'bg-blue-50'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('border-blue-500', 'bg-blue-50'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-blue-500', 'bg-blue-50');
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => { if(e.target.files.length) handleFile(e.target.files[0]); });
+
+    function handleFile(file) {
+      currentFile = file;
+      fileNameEl.textContent = file.name;
+      processButton.disabled = false;
+      showResults('', false);
+    }
+
+    // 1. Processar
+    processButton.addEventListener('click', async () => {
+      if (!currentFile) return;
+      showLoading('Lendo arquivo...');
+      parsedData = [];
+
+      try {
+        const data = await currentFile.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        
+        if (!json.length) throw new Error("Arquivo vazio.");
+        const first = json[0];
+        if (!first.cnpj || !first.cliente || !first.produtos || !first.categoria) {
+            throw new Error("Colunas obrigatórias faltando (cliente, cnpj, produtos, categoria).");
         }
-  	  	
-  	  	parsedData = json; 
-  	  	renderPreview(json);
-  	  	hideLoading();
-  	  } catch (error) {
-  	  	console.error(error);
-  	  	showResults(`<p class="text-red-600"><strong>Erro ao ler:</strong> ${error.message}</p>`);
-  	  	hideLoading();
-  	  }
-  	});
+        
+        parsedData = json; 
+        const uniqueClients = new Set(json.map(r => r.cnpj)).size;
+        showResults(`<p class="text-green-700 font-medium">Arquivo válido! ${uniqueClients} clientes e ${json.length} produtos encontrados.</p>`, true);
+        hideLoading();
+      } catch (e) {
+        showResults(`<p class="text-red-600 font-bold">Erro: ${e.message}</p>`);
+        hideLoading();
+      }
+    });
 
-  	// --- 2. Renderizar a Prévia ---
-  	function renderPreview(data) {
-  	  const clientesUnicos = new Set(data.map(row => row.cnpj)); // ✅ CORRIGIDO
-  	  const totalProdutos = data.length;
+    // 2. Salvar
+    confirmButton.addEventListener('click', async () => {
+      if (!parsedData.length) return;
+      showLoading('Salvando no banco...');
+      let importedCount = 0;
+      let errorData = null;
 
-  	  let html = `
-  	  	<h4 class="font-medium text-gray-900">Prévia da Importação</h4>
-        <p class="text-sm text-gray-600 mb-2">
-          <strong class="text-gray-900">${clientesUnicos.size}</strong> cliente(s) único(s) encontrado(s).
-        </p>
-        <p class="text-sm text-gray-600 mb-2">
-          <strong class="text-gray-900">${totalProdutos}</strong> produtos totais a serem importados.
-        </p>
-  	  `;
-  	  showResults(html, true);
-  	}
+      try {
+        // A. Clientes Únicos
+        const uniqueCnpjs = [...new Set(parsedData.map(r => r.cnpj))];
+        const clientsToUpsert = uniqueCnpjs.map(cnpj => {
+            const row = parsedData.find(r => r.cnpj === cnpj);
+            return { nome: row.cliente, cnpj: row.cnpj, email: row.email, telefone: row.telefone };
+        });
 
-  	// --- 3. Confirmar e Salvar no Banco (LÓGICA "INTELIGENTE") ---
-  	confirmButton.addEventListener('click', async () => {
-  	  if (parsedData.length === 0) return;
-  	  
-  	  showLoading('Salvando no banco de dados...');
-  	  
-  	  let totalImportados = 0;
-  	  let erros = null;
+        const { data: clientsRes, error: cErr } = await supabase.from('clientes').upsert(clientsToUpsert, { onConflict: 'cnpj' }).select('id, cnpj');
+        if (cErr) throw cErr;
 
-  	  try {
-        // --- ETAPA A: Pegar todos os Clientes ÚNICOS da planilha ---
-  	  	const cnpjsUnicos = [...new Set(parsedData.map(row => row.cnpj))]; // ✅ CORRIGIDO
-  	  	
-  	  	const clientesParaUpsert = cnpjsUnicos.map(cnpj => {
-  	  	  const row = parsedData.find(r => r.cnpj === cnpj); // ✅ CORRIGIDO
-  	  	  return {
-  	  	  	nome: row.cliente, // ✅ CORRIGIDO
-  	  	  	cnpj: row.cnpj, // ✅ CORRIGIDO
-  	  	  	email: row.email || null,
-  	  	  	telefone: row.telefone || null,
-  	  	  };
-  	  	});
+        // B. Mapa CNPJ -> ID
+        const clientMap = new Map(clientsRes.map(c => [c.cnpj, c.id]));
 
-  	  	// --- ETAPA B: Criar ou Atualizar todos os Clientes de uma vez ---
-  	  	const { data: clientesResult, error: clienteError } = await supabase
-  	  	  .from('clientes')
-  	  	  .upsert(clientesParaUpsert, { onConflict: 'cnpj' })
-  	  	  .select('id, cnpj');
+        // C. Produtos
+        const productsToInsert = parsedData.map(row => ({
+            nome: row.produtos,
+            categoria: row.categoria,
+            estoque_atual: Number(row['estoque inicial']) || 0,
+            estoque_minimo: Number(row['estoque minimo']) || 0,
+            cliente_id: clientMap.get(row.cnpj),
+            ativo: true
+        }));
 
-  	  	if (clienteError) throw clienteError;
-  	  	
-  	  	// --- ETAPA C: Criar um Mapa de "CNPJ -> ID" ---
-  	  	const clienteIdMap = new Map(clientesResult.map(c => [c.cnpj, c.id]));
+        const { data: pRes, error: pErr } = await supabase.from('produtos').insert(productsToInsert).select();
+        if (pErr) throw pErr;
 
-  	  	// --- ETAPA D: Preparar todos os Produtos com o ID de Cliente correto ---
-  	  	const produtosData = parsedData.map(row => ({
-  	  	  nome: row.produtos, // ✅ CORRIGIDO
-  	  	  categoria: row.categoria, // ✅ CORRIGIDO
-  	  	  estoque_atual: Number(row['estoque inicial']) || 0, // ✅ CORRIGIDO
-  	  	  estoque_minimo: Number(row['estoque minimo']) || 0, // ✅ CORRIGIDO
-  	  	  cliente_id: clienteIdMap.get(row.cnpj), // ✅ CORRIGIDO
-  	  	}));
+        importedCount = pRes.length;
+        showResults(`<p class="text-green-600 font-bold">Sucesso! ${importedCount} produtos importados.</p>`);
 
-  	  	// --- ETAPA E: Inserir todos os Produtos de uma vez ---
-  	  	const { data: produtosResult, error: produtosError } = await supabase
-  	  	  .from('produtos')
-  	  	  .insert(produtosData)
-  	  	  .select();
-
-  	  	if (produtosError) throw produtosError;
-
-  	  	totalImportados = produtosResult.length;
-  	  	showResults(`<p class="text-green-600"><strong>Sucesso!</strong> ${clientesResult.length} cliente(s) e ${totalImportados} produto(s) importados/atualizados.</p>`);
-
-  	  } catch (error) {
-  	  	console.error(error);
-  	  	erros = { message: error.message };
-  	  	showResults(`<p class="text-red-600"><strong>Erro ao salvar:</strong> ${error.message}. Verifique o console.</p>`);
-  	  
-  	  } finally {
-  	  	hideLoading();
-  	  	// --- 4. Logar a tentativa na tabela 'importacoes' ---
-  	  	await supabase.from('importacoes').insert({
-  	  	  nome_arquivo: currentFile.name,
-  	  	  tipo_importacao: 'clientes_e_produtos',
-  	  	  total_registros: parsedData.length,
-  	  	  registros_importados: totalImportados,
-  	  	  erros: erros,
-  	  	  usuario_id: userId
-  	  	});
-  	  	
-  	  	// Limpa o estado
-  	  	parsedData = [];
-  	  	currentFile = null;
-  	  	fileInput.value = null;
-  	  	fileNameEl.textContent = '';
-  	  	processButton.disabled = true;
-  	  	setTimeout(() => window.location.reload(), 3000); // Recarrega a página
-  	  }
-  	});
-
-  </script>
+      } catch (e) {
+        console.error(e);
+        errorData = { message: e.message };
+        showResults(`<p class="text-red-600 font-bold">Erro no banco: ${e.message}</p>`);
+      } finally {
+        hideLoading();
+        // Log
+        await supabase.from('importacoes').insert({
+            nome_arquivo: currentFile.name,
+            tipo_importacao: 'massa',
+            total_registros: parsedData.length,
+            registros_importados: importedCount,
+            erros: errorData,
+            usuario_id: userId
+        });
+        
+        setTimeout(() => window.location.reload(), 3000);
+      }
+    });
+  </script>
 </Layout>

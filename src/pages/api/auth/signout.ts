@@ -1,17 +1,16 @@
-// O seu código, mas agora neste caminho de ficheiro
+// src/pages/api/auth/signout.ts
 import type { APIRoute } from 'astro';
 
-export const POST: APIRoute = async ({ redirect }) => {
-  // A forma "Astro" de fazer o que você fez
-  // É mais limpa e lida com os cabeçalhos por si.
-  return redirect("/login", 302, [
-    'Set-Cookie: sb-access-token=; Path=/; HttpOnly; Max-Age=0',
-    'Set-Cookie: sb-refresh-token=; Path=/; HttpOnly; Max-Age=0'
-  ]);
-}
+export const GET: APIRoute = async ({ cookies, redirect }) => {
+  // Apaga os cookies
+  cookies.delete('sb-access-token', { path: '/' });
+  cookies.delete('sb-refresh-token', { path: '/' });
+  
+  return redirect('/login');
+};
 
-// Opcional: Se quiser uma mensagem de erro simpática
-// para quem tentar aceder via GET
-export const GET: APIRoute = () => {
-  return new Response("Use o botão de 'Sair', não esta URL.", { status: 405 });
-}
+export const POST: APIRoute = async ({ cookies, redirect }) => {
+    cookies.delete('sb-access-token', { path: '/' });
+    cookies.delete('sb-refresh-token', { path: '/' });
+    return redirect('/login');
+};

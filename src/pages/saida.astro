@@ -1,38 +1,66 @@
 ---
+// src/pages/saida.astro
 import Layout from '../layouts/Layout.astro';
-import { supabase } from '$lib/supabase';
+import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar.astro';
 
-const user = Astro.locals.user;
+// 1. Verificação de Sessão
+const { data: { session } } = await supabase.auth.getSession();
+const user = session?.user;
+
 if (!user) return Astro.redirect('/login');
 
-let errorMessage: string | null = null;
-let successMessage: string | null = Astro.url.searchParams.get('success');
+// Tokens para o cliente-side
+const accessToken = session.access_token;
+const refreshToken = session.refresh_token;
 
-const userName = user.profile?.name ?? 'Usuário';
-const userRole = user.profile?.role ?? 'Visitante';
-const userAvatar = userName.charAt(0).toUpperCase() || '#';
+// 2. Busca e Normalização de Perfil
+const { data: userProfile } = await supabase
+  .from('profiles')
+  .select('role, nome')
+  .eq('id', user.id)
+  .single();
+
+const userData = {
+  ...user,
+  profile: userProfile || { role: 'visitante', nome: 'Usuário' }
+};
+
+const userName = userProfile?.nome || 'Usuário';
+const rawRole = userProfile?.role || 'visitante';
+const userRole = String(rawRole).toLowerCase().replace('_', ' ').trim();
+const userAvatar = userName.charAt(0).toUpperCase();
 const currentPath = Astro.url.pathname;
 
-// ✅ POST - Registrar Saída
+// 3. Verificação de Permissão
+const allowedRoles = ['admin', 'super admin', 'estoquista_saida', 'estoquista saida'];
+
+if (!allowedRoles.includes(userRole)) {
+  return Astro.redirect('/dashboard?error=acesso_negado_saida');
+}
+
+let errorMessage: string | null = null;
+let successMessage: string | null = null; // Mensagem de sucesso
+
+// 4. Lógica de POST (Registrar Saída)
 if (Astro.request.method === 'POST') {
   try {
     const formData = await Astro.request.formData();
     const produto_id = formData.get('produto_id')?.toString();
     const cliente_id = formData.get('cliente_id')?.toString();
     const quantidade = Number(formData.get('quantidade'));
-    const valor_unitario = Number(formData.get('valor_venda')) || 0;
+    const valor_venda = Number(formData.get('valor_venda')) || 0;
     const motivo = formData.get('motivo')?.toString() || 'Saída manual';
 
     if (!produto_id || !cliente_id || !quantidade || quantidade <= 0) {
-      throw new Error('Cliente, Produto e Quantidade (maior que zero) são obrigatórios.');
+      throw new Error('Produto, Cliente e Quantidade (maior que zero) são obrigatórios.');
     }
 
     const { error } = await supabase.rpc('registrar_movimentacao', {
       p_produto_id: produto_id,
-      p_tipo: 'saida',
+      p_tipo: 'saida', // TIPO SAÍDA
       p_quantidade: quantidade,
-      p_valor_unitario: valor_unitario,
+      p_valor_unitario: valor_venda, // Valor de venda
       p_motivo: motivo,
       p_usuario_id: user.id,
       p_cliente_id: cliente_id
@@ -40,62 +68,67 @@ if (Astro.request.method === 'POST') {
 
     if (error) throw error;
 
-    return Astro.redirect('/dashboard?success=Saída registrada com sucesso!');
+    // SUCESSO: Define mensagem e mantém na página
+    successMessage = 'Saída registrada com sucesso! Estoque atualizado.';
 
   } catch (error: any) {
+    console.error('Erro ao registrar saída:', error.message);
     errorMessage = `Erro ao salvar: ${error.message}`;
   }
 }
 ---
 
-<Layout title="Registrar Saída" user={user}>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+<Layout title="Registrar Saída" user={userData}>
+  <div class="min-h-screen bg-gray-50 flex flex-col">
+    
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-16 w-auto" />
+        </div>
 
-    <!-- ✅ NAVBAR UNIFICADA -->
-    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 w-full">
-      <div class="max-w-7xl mx-auto px-6 py-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-8">
-          <img src=https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-20 w-auto mr-4" />
-            </h1>
-
-            <!-- ✅ Navbar Reutilizável -->
-            <Navbar user={user} currentPath={currentPath} />
-          </div>
-
-          <!-- ✅ Perfil com Dropdown -->
-          <div class="relative" id="profile-menu-container">
-            <button id="profile-menu-button" class="flex items-center gap-3 cursor-pointer">
-              <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-                <span class="text-white text-sm font-medium">{userAvatar}</span>
-              </div>
-              <div class="hidden sm:block">
-                <p class="text-sm font-medium text-gray-900">{userName}</p>
-                <p class="text-xs text-gray-500">{userRole}</p>
-              </div>
+        <div class="flex-grow flex justify-center">
+            <Navbar user={userData} currentPath={currentPath} />
+        </div>
+        
+        <div class="flex-shrink-0 relative group ml-6">
+            <button class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole.replace('_', ' ')}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
             </button>
-
-            <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
-              <div class="px-4 py-2 border-b border-gray-100">
-                <p class="text-sm font-medium text-gray-900 truncate">{userName}</p>
-                <p class="text-xs text-gray-500 truncate">{user.email}</p>
-              </div>
-              <a href="/api/auth/signout" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-                <span>Sair</span>
-              </a>
+            
+            <div class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50 animate-fade-in">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                            Sair do Sistema
+                        </button>
+                    </form>
+                </div>
             </div>
-          </div>
         </div>
       </div>
     </header>
 
-    <main class="p-6">
-      <div class="max-w-2xl mx-auto">
-
+    <main class="p-6 max-w-2xl mx-auto w-full">
+        <div id="auth-data" data-access-token={accessToken} data-refresh-token={refreshToken} class="hidden"></div>
+        
         <nav class="flex mb-6" aria-label="Breadcrumb">
           <ol class="flex items-center space-x-2">
             <li>
-              <a href="/dashboard" class="text-gray-500 hover:text-gray-700">Dashboard</a>
+              <a href="/dashboard" class="text-gray-500 hover:text-blue-600 transition-colors">Dashboard</a>
             </li>
             <li>
               <svg class="flex-shrink-0 h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
@@ -109,81 +142,129 @@ if (Astro.request.method === 'POST') {
         </nav>
 
         {errorMessage && (
-          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
-            <strong>Ops! </strong>{errorMessage}
+          <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm mb-6 animate-fade-in">
+            <div class="flex">
+                <div class="ml-3">
+                    <p class="text-sm text-red-700 font-bold">Erro ao salvar</p>
+                    <p class="text-sm text-red-600">{errorMessage}</p>
+                </div>
+            </div>
           </div>
         )}
 
-        <form method="POST" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-6">
-          <h2 class="text-2xl font-bold text-gray-900 mb-6">Registrar Saída de Estoque</h2>
+        {successMessage && (
+          <div class="bg-green-50 border-l-4 border-green-500 p-4 rounded-md shadow-sm mb-6 animate-fade-in">
+            <div class="flex items-center gap-3">
+                <svg class="h-6 w-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <div>
+                    <p class="text-sm text-green-700 font-bold">Sucesso!</p>
+                    <p class="text-sm text-green-600">{successMessage}</p>
+                </div>
+            </div>
+          </div>
+        )}
 
-          <!-- Cliente -->
+        <form method="POST" class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6">
+          <div class="border-b border-gray-100 pb-4 mb-4">
+              <h2 class="text-2xl font-bold text-gray-900">Nova Saída</h2>
+              <p class="text-sm text-gray-500">Registre a saída de mercadorias do estoque.</p>
+          </div>
+
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Cliente <span class="text-red-500">*</span></label>
+            <label for="selected-client-name" class="block text-sm font-medium text-gray-700 mb-1">Cliente <span class="text-red-500">*</span></label>
             <div class="flex gap-2">
-              <input type="text" id="selected-client-name" readonly placeholder="Clique na lupa..." 
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 cursor-pointer">
+              <input 
+                type="text" 
+                id="selected-client-name" 
+                placeholder="Clique na lupa para buscar..." 
+                readonly 
+                class="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-gray-50 text-gray-600 cursor-pointer focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
               <input type="hidden" name="cliente_id" id="cliente_id">
-              <button type="button" id="open-client-modal" class="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                🔍
+              <button type="button" id="open-client-modal" class="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
               </button>
             </div>
           </div>
 
-          <!-- Produto -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Produto <span class="text-red-500">*</span></label>
-            <select name="produto_id" id="produto_id" required disabled class="w-full border border-gray-300 rounded-lg px-3 py-2 disabled:bg-gray-100">
+            <label for="produto_id" class="block text-sm font-medium text-gray-700 mb-1">Produto <span class="text-red-500">*</span></label>
+            <select 
+              name="produto_id" 
+              id="produto_id" 
+              required 
+              disabled 
+              class="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400 transition-all"
+            >
               <option value="">Selecione um cliente primeiro</option>
             </select>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Quantidade <span class="text-red-500">*</span></label>
-              <input type="number" name="quantidade" id="quantidade" min="1" value="1" required 
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500">
+              <label for="quantidade" class="block text-sm font-medium text-gray-700 mb-1">Quantidade <span class="text-red-500">*</span></label>
+              <input type="number" name="quantidade" id="quantidade" required value="1" min="1" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+            </div>
+            <div>
+               <label for="valor_venda" class="block text-sm font-medium text-gray-700 mb-1">Valor Venda (R$)</label>
+               <input type="number" name="valor_venda" id="valor_venda" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
             </div>
           </div>
+           
+           <div>
+               <label for="motivo" class="block text-sm font-medium text-gray-700 mb-1">Observação / Motivo</label>
+               <input type="text" name="motivo" id="motivo" placeholder="Ex: Venda, Doação, Perda" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+           </div>
 
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
-            <input type="text" name="motivo" id="motivo" placeholder="Ex: Venda, Perda..."
-              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500">
-          </div>
-
-          <div class="flex items-center justify-end gap-4 mt-8 pt-6 border-t">
-            <a href="/dashboard" class="bg-gray-100 px-6 py-3 rounded-xl hover:bg-gray-200 font-medium text-gray-700">
+          <div class="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-100">
+            <a href="/dashboard" class="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors">
               Cancelar
             </a>
-            <button type="submit" class="bg-blue-600 px-6 py-3 rounded-xl text-white hover:bg-blue-700 font-medium">
-              Registrar Saída
+            <button type="submit" class="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Confirmar Saída
             </button>
           </div>
         </form>
-
-      </div>
     </main>
 
-    <!-- Modal de Cliente -->
-    <div id="client-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 hidden">
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-        <div class="flex justify-between items-center p-6 border-b">
-          <h3 class="text-lg font-bold">Buscar Cliente</h3>
-          <button id="close-client-modal" class="text-gray-400 hover:text-gray-600">✖</button>
+    <div id="client-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50 transition-opacity">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg transform transition-all scale-100">
+        <div class="flex justify-between items-center p-6 border-b border-gray-100">
+          <h3 class="text-lg font-bold text-gray-800">Selecionar Cliente</h3>
+          <button type="button" id="close-client-modal" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
         </div>
         <div class="p-6">
-          <input type="text" id="client-search-input" placeholder="Nome ou CNPJ..." 
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500">
-          <div id="client-search-results" class="mt-4 max-h-60 overflow-y-auto space-y-2"></div>
+          <div class="relative">
+              <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              </span>
+              <input 
+                type="text" 
+                id="client-search-input" 
+                placeholder="Digite o nome ou CNPJ..." 
+                class="w-full border border-gray-300 rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+          </div>
+          <div id="client-search-results" class="mt-4 max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Script de Modal, Busca e Dropdown -->
   <script>
     import { supabase } from '../lib/supabase';
+
+    // === CRÍTICO: AUTENTICAR O CLIENTE JAVASCRIPT ===
+    const authData = document.getElementById('auth-data');
+    if (authData && authData.dataset.accessToken) {
+        supabase.auth.setSession({
+            access_token: authData.dataset.accessToken,
+            refresh_token: authData.dataset.refreshToken || ''
+        });
+    }
 
     const openModalBtn = document.getElementById('open-client-modal');
     const closeModalBtn = document.getElementById('close-client-modal');
@@ -194,88 +275,78 @@ if (Astro.request.method === 'POST') {
     const clientIdInput = document.getElementById('cliente_id');
     const productSelect = document.getElementById('produto_id');
 
-    openModalBtn.onclick = () => {
-      modal.classList.remove('hidden');
-      searchInput.focus();
-      performSearch('');
-    };
-    closeModalBtn.onclick = () => modal.classList.add('hidden');
-
-    modal.onclick = (e) => {
-      if (e.target === modal) modal.classList.add('hidden');
-    };
+    openModalBtn?.addEventListener('click', () => { modal?.classList.remove('hidden'); searchInput?.focus(); performSearch(''); });
+    closeModalBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
+    modal?.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.add('hidden');
+    });
 
     let searchTimeout;
-    searchInput.onkeyup = (e) => {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => performSearch(e.target.value), 300);
-    };
+    searchInput?.addEventListener('keyup', (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => performSearch(e.target.value), 300);
+    });
 
     async function performSearch(query) {
-      const { data, error } = await supabase
-        .from('clientes')
-        .select('id, nome, cnpj')
-        .or(`nome.ilike.%${query}%,cnpj.ilike.%${query}%`)
-        .limit(10);
+        if (!searchResults) return;
+        searchResults.innerHTML = '<p class="text-gray-500 text-center py-4">Buscando...</p>';
+        
+        const { data, error } = await supabase
+            .from('clientes')
+            .select('id, nome, cnpj')
+            .or(`nome.ilike.%${query}%,cnpj.ilike.%${query}%`)
+            .limit(10);
 
-      if (!data || data.length === 0) {
-        searchResults.innerHTML = '<p class="text-gray-500">Nenhum cliente encontrado.</p>';
-        return;
-      }
+        if (error) {
+            searchResults.innerHTML = '<p class="text-red-500 text-center py-2">Erro ao buscar.</p>';
+            return;
+        }
 
-      searchResults.innerHTML = '';
-      data.forEach(client => {
-        const el = document.createElement('div');
-        el.className = 'p-3 border rounded-lg hover:bg-gray-100 cursor-pointer';
-        el.innerHTML = `<p class="font-medium">${client.nome}</p><p class="text-sm text-gray-600">${client.cnpj}</p>`;
-        el.onclick = () => selectClient(client);
-        searchResults.appendChild(el);
-      });
+        if (!data || data.length === 0) {
+            searchResults.innerHTML = '<p class="text-gray-500 text-center py-4">Nenhum cliente encontrado.</p>';
+            return;
+        }
+
+        searchResults.innerHTML = '';
+        data.forEach(client => {
+            const div = document.createElement('div');
+            div.className = 'p-3 border border-gray-100 rounded-xl hover:bg-blue-50 cursor-pointer transition-all';
+            div.innerHTML = `<p class="font-bold text-gray-800">${client.nome}</p><p class="text-xs text-gray-500">${client.cnpj || 'Sem CNPJ'}</p>`;
+            div.onclick = () => {
+                if (clientNameInput) clientNameInput.value = client.nome;
+                if (clientIdInput) clientIdInput.value = client.id;
+                modal?.classList.add('hidden');
+                loadProducts(client.id);
+            };
+            searchResults.appendChild(div);
+        });
     }
 
-    function selectClient(client) {
-      clientNameInput.value = client.nome;
-      clientIdInput.value = client.id;
-      modal.classList.add('hidden');
-      loadProductsForClient(client.id);
-    }
+    async function loadProducts(clientId) {
+        if (!productSelect) return;
+        productSelect.innerHTML = '<option>Carregando...</option>';
+        productSelect.disabled = true;
 
-    async function loadProductsForClient(clientId) {
-      productSelect.innerHTML = '<option>Carregando...</option>';
-      productSelect.disabled = true;
+        const { data, error } = await supabase
+            .from('produtos')
+            .select('id, nome, estoque_atual')
+            .eq('cliente_id', clientId)
+            .eq('ativo', true)
+            .order('nome');
 
-      const { data } = await supabase
-        .from('produtos')
-        .select('id, nome, estoque_atual')
-        .eq('cliente_id', clientId)
-        .eq('ativo', true)
-        .order('nome');
+        if (error || !data || data.length === 0) {
+            productSelect.innerHTML = '<option value="">Nenhum produto encontrado</option>';
+            return;
+        }
 
-      if (!data || data.length === 0) {
-        productSelect.innerHTML = '<option>Nenhum produto deste cliente</option>';
-        return;
-      }
-
-      productSelect.innerHTML = '<option value="">-- Selecione um produto --</option>';
-      data.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = `${p.nome} (Estoque: ${p.estoque_atual})`;
-        productSelect.appendChild(opt);
-      });
-
-      productSelect.disabled = false;
-    }
-
-    // ✅ Dropdown do perfil
-    const menuButton = document.getElementById('profile-menu-button');
-    const menuDropdown = document.getElementById('profile-menu-dropdown');
-    const menuContainer = document.getElementById('profile-menu-container');
-    if (menuButton && menuDropdown && menuContainer) {
-      menuButton.onclick = () => menuDropdown.classList.toggle('hidden');
-      document.addEventListener('click', (e) => {
-        if (!menuContainer.contains(e.target)) menuDropdown.classList.add('hidden');
-      });
+        productSelect.innerHTML = '<option value="">-- Selecione o Produto --</option>';
+        data.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.nome} (Estoque: ${p.estoque_atual})`;
+            productSelect.appendChild(opt);
+        });
+        productSelect.disabled = false;
     }
   </script>
 </Layout>

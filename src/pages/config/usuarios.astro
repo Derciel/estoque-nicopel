@@ -1,142 +1,340 @@
 ---
 // src/pages/config/usuarios.astro
 import Layout from '../../layouts/Layout.astro';
-import { supabase } from '$lib/supabase';
+import Navbar from '../../components/Navbar.astro';
+import { supabase } from '../../lib/supabase';
+import { supabaseAdmin } from '../../lib/supabase-admin';
 
-export const prerender = false; // Esta página é sempre dinâmica
+// 1. SEGURANÇA
+const { data: { user } } = await supabase.auth.getUser();
+if (!user) return Astro.redirect('/login');
 
-const user = Astro.locals.user;
+// Busca perfil para navbar e permissão
+const { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
 
-// --- LÓGICA DE PERMISSÕES (PARA O HEADER) ---
-const userName = user.profile?.name ?? 'Usuário';
-const userRole = user.profile?.role ?? 'Visitante';
-const userAvatar = userName.charAt(0).toUpperCase() || '#';
+// Objeto completo para Navbar
+const userData = { ...user, profile: userProfile };
 
-const canSeeItens = ['admin', 'Estoquista_Entrada', 'Estoquista_Saida'].includes(userRole);
-const canSeeClientes = ['admin', 'Estoquista_Saida', 'Estoquista_Entrada'].includes(userRole);
-const canSeeEntrada = ['admin', 'Estoquista_Entrada'].includes(userRole);
-const canSeeSaida = ['adminr', 'Estoquista_Saida'].includes(userRole);
-const canSeeRelatorios = ['admin'].includes(userRole);
-const canSeeImportacao = ['admin'].includes(userRole);
-const canSeeConfig = ['admin'].includes(userRole);
+// Normalização
+const userName = userProfile?.nome || 'Usuário';
+const userRole = String(userProfile?.role || 'visitante').toLowerCase().trim();
+const userAvatar = userName.charAt(0).toUpperCase();
+const currentPath = Astro.url.pathname;
 
-// --- VERIFICAÇÃO DE ACESSO ---
-if (userRole !== 'Administrador') {
-  return Astro.redirect('/dashboard?error=nao_autorizado');
+// Apenas Admin entra aqui
+if (!['admin', 'super admin'].includes(userRole)) {
+  return Astro.redirect('/dashboard?error=acesso_negado');
 }
 
-// --- BUSCA DE DADOS ---
-const { data: usuarios, error } = await supabase
-  .from('profiles')
-  .select('id, name, email, role') // Pega 'name'
-  .order('name'); // Ordena por 'name'
+// 2. AÇÕES
+let msg = null;
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    const action = formData.get('action')?.toString();
+
+    // CRIAR
+    if (action === 'create') {
+        const nome = formData.get('nome')?.toString();
+        const email = formData.get('email')?.toString();
+        const password = formData.get('password')?.toString();
+        const role = formData.get('role')?.toString();
+        if(!nome || !email || !password || !role) throw new Error("Preencha todos os campos.");
+
+        const { data: newUser, error: cErr } = await supabaseAdmin.auth.admin.createUser({
+            email, password, email_confirm: true, user_metadata: { nome, role }
+        });
+        if (cErr) throw cErr;
+        
+        if (newUser.user) {
+            await supabaseAdmin.from('profiles').upsert({ id: newUser.user.id, nome, email, role });
+        }
+        msg = { type: 'success', text: `Usuário ${nome} criado com sucesso!` };
+    }
+    // ATUALIZAR
+    else if (action === 'update') {
+        const userId = formData.get('user_id')?.toString();
+        const nome = formData.get('nome')?.toString();
+        const role = formData.get('role')?.toString();
+        
+        if(!userId) throw new Error("ID inválido");
+
+        await supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: { nome, role } });
+        await supabaseAdmin.from('profiles').update({ nome, role }).eq('id', userId);
+        msg = { type: 'success', text: "Permissões atualizadas com sucesso!" };
+    }
+    // DELETAR
+    else if (action === 'delete') {
+        const userId = formData.get('user_id')?.toString();
+        if(userId === user.id) throw new Error("Você não pode excluir sua própria conta.");
+        await supabaseAdmin.auth.admin.deleteUser(userId!);
+        msg = { type: 'success', text: "Usuário removido do sistema." };
+    }
+  } catch (e: any) {
+    msg = { type: 'error', text: e.message };
+  }
+}
+
+// 3. LISTAR
+const { data: usersList } = await supabaseAdmin.from('profiles').select('*').order('nome', { ascending: true });
 ---
 
-<Layout title="Configurações - Usuários" user={user}>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-    
-    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
-      <div class="px-6 py-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-8">
-            <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            	EstoquePro
-          	</h1>
-          	<nav class="flex items-center gap-1 bg-white/50 rounded-2xl border border-gray-200 p-1 shadow-sm">
-          	  <a href="/dashboard" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300">
-          	    <span>Dashboard</span>
-          	  </a>
-          	  {canSeeItens && ( <a href="/itens" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Itens</span> </a> )}
-            {canSeeClientes && ( <a href="/clientes" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Clientes</span> </a> )}
-            {canSeeEntrada && ( <a href="/entrada" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Entrada</span> </a> )}
-            {canSeeSaida && ( <a href="/saida" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Saída</span> </a> )}
-            {canSeeRelatorios && ( <a href="/relatorios" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Relatórios</span> </a> )}
-            {canSeeImportacao && ( <a href="/importacao" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-50 font-medium text-sm transition-all duration-300"> <span>Importação</span> </a> )}
-            {canSeeConfig && ( <a href="/config/usuarios" class="px-4 py-2 rounded-xl bg-blue-50 text-blue-600 font-medium text-sm transition-all duration-300"> <span>Configurações</span> </a> )}
-          	</nav>
-          </div>
-          <div class="flex items-center gap-4">
-            <div class="flex items-center gap-3">
-              <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-                <span class="text-white text-sm font-medium">{userAvatar}</span>
-              </div>
-            	<div class="hidden sm:block">
-            	  <p class="text-sm font-medium text-gray-900">{userName}</p>
-            	  <p class="text-xs text-gray-500">{userRole}</p>
-        	    </div>
-        	  </div>
-        	  <a href="/api/auth/signout" class="relative p-2 text-gray-600 hover:bg-gray-100 rounded-xl transition-colors" title="Sair">
-        	    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-    	      </a>
-      	  </div>
-    	  </div>
-  	  </div>
-  	</header>
+<Layout title="Gerenciar Usuários" user={userData}>
+  <div class="min-h-screen bg-gray-50 flex flex-col">
+    
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="Logo" class="h-16 w-auto" />
+        </div>
+        <div class="flex-grow flex justify-center">
+            <Navbar user={userData} currentPath={currentPath} />
+        </div>
+        <div class="flex-shrink-0 relative group ml-6">
+            <button class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
+            </button>
+            <div class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">Sair</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+      </div>
+    </header>
 
-    <main class="p-6">
-      <div class="max-w-7xl mx-auto">
-        <div class="flex items-center justify-between mb-8">
-          <div>
-            <h2 class="text-3xl font-bold text-gray-900">Gerenciar Usuários</h2>
-            <p class="text-gray-600 mt-2">Veja e edite as permissões dos usuários.</p>
-          </div>
-          <a 
-            href="https://supabase.com/dashboard/project" 
-            target="_blank" 
-            class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
-          >
-            Convidar Novo Usuário (via Supabase)
-          </a>
-        </div>
-        
-        <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-          <div class="flex items-center gap-3">
-            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            <p class="text-blue-800 font-medium">
-              Lembrete: Convide usuários pelo painel do Supabase. Use esta tela para **promover** a `role` deles de "Visitante" para uma função superior.
-            </p>
-          </div>
-        </div>
+    <main class="p-6 max-w-7xl mx-auto w-full">
+      
+      {msg && (
+        <div class={`mb-6 p-4 rounded-xl border flex items-center gap-3 shadow-sm animate-fade-in ${msg.type === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+            <span class="text-xl">{msg.type === 'success' ? '✅' : '⚠️'}</span>
+            <p class="font-medium">{msg.text}</p>
+        </div>
+      )}
 
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-200">
-          <div class="overflow-x-auto">
-            <table class="w-full">
-              <thead>
-                <tr class="border-b border-gray-200">
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Nome</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Email</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Função (Role)</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usuarios && usuarios.length > 0 ? usuarios.map((u) => (
-                  <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td class="py-4 px-6 font-medium text-gray-900">{u.name || 'Sem nome'}</td>
-                    <td class="py-4 px-6 text-gray-600">{u.email || 'Sem email'}</td>
-                    <td class="py-4 px-6">
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {u.role}
-                      </span>
-                    </td>
-                    <td class="py-4 px-6">
-                      <a href={`/config/editar-usuario/${u.id}`} class="text-blue-600 hover:text-blue-700 text-sm font-medium">
-                        Editar Permissões
-                a     </a>
-                    </td>
-            	      </tr>
-        	        )) : (
-        	          <tr>
-        	            <td colspan="4" class="py-8 px-6 text-center text-gray-500">
-      	              Nenhum usuário encontrado.
-      	            </td>
-    	            </tr>
-  	            )}
-  	          </tbody>
-  	        </table>
-  	      </div>
-    	  </div>
-  	  </div>
-  	</main>
-  </div>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <div class="lg:col-span-1">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 sticky top-24">
+                <h2 class="text-xl font-bold text-gray-900 mb-1">Novo Usuário</h2>
+                <p class="text-sm text-gray-500 mb-6">Cadastre um novo membro na equipe.</p>
+                
+                <form method="POST" class="space-y-4">
+                    <input type="hidden" name="action" value="create">
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                        <input name="nome" required class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="Ex: João Silva">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">E-mail de Acesso</label>
+                        <input name="email" type="email" required class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="joao@empresa.com">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Senha Inicial</label>
+                        <input name="password" type="password" required minlength="6" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="Mínimo 6 caracteres">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Função</label>
+                        <div class="relative">
+                            <select name="role" required class="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none">
+                                <option value="" disabled selected>Selecione...</option>
+                                <option value="estoquista_entrada">Estoquista Entrada</option>
+                                <option value="estoquista_saida">Estoquista Saída</option>
+                                <option value="visualizador">Visualizador</option>
+                                <option value="admin">Administrador</option>
+                            </select>
+                            <div class="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-gray-500">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg flex justify-center items-center gap-2 mt-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                        Criar Usuário
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-bold text-gray-900">Usuários Ativos</h2>
+                        <p class="text-sm text-gray-500">Gerencie quem tem acesso ao sistema.</p>
+                    </div>
+                    <span class="bg-white border px-3 py-1 rounded-full text-xs font-bold text-gray-600 shadow-sm">
+                        Total: {usersList?.length || 0}
+                    </span>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-gray-500 border-b border-gray-100">
+                            <tr>
+                                <th class="px-6 py-4 font-medium">Nome / Email</th>
+                                <th class="px-6 py-4 font-medium">Permissão</th>
+                                <th class="px-6 py-4 font-medium text-right">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-50">
+                            {usersList?.map(u => (
+                                <tr class="hover:bg-blue-50/50 transition-colors group">
+                                    <td class="px-6 py-4">
+                                        <div class="font-bold text-gray-900 text-base">{u.nome}</div>
+                                        <div class="text-gray-500 text-xs font-mono">{u.email}</div> 
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class={`inline-flex px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border shadow-sm
+                                            ${u.role.includes('admin') ? 'bg-purple-100 text-purple-700 border-purple-200' : 
+                                              u.role.includes('entrada') ? 'bg-green-100 text-green-700 border-green-200' : 
+                                              u.role.includes('saida') ? 'bg-red-100 text-red-700 border-red-200' : 
+                                              'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                                            {u.role.replace('_', ' ')}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        {u.id !== user.id ? (
+                                            <div class="flex justify-end gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                                                <button onclick={`openEdit('${u.id}', '${u.nome}', '${u.role}')`} class="text-blue-600 hover:text-blue-800 bg-white border border-gray-200 hover:border-blue-300 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all">
+                                                    Editar
+                                                </button>
+                                                <form method="POST" onsubmit="return confirm('Tem certeza que deseja excluir este usuário?');" style="display:inline">
+                                                    <input type="hidden" name="action" value="delete">
+                                                    <input type="hidden" name="user_id" value={u.id}>
+                                                    <button class="text-red-600 hover:text-red-800 bg-white border border-gray-200 hover:border-red-300 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all">
+                                                        Excluir
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        ) : (
+                                            <span class="text-xs text-gray-400 italic bg-gray-50 px-2 py-1 rounded border">Você</span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+      </div>
+    </main>
+
+    <div id="editModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm hidden flex items-center justify-center z-50 transition-opacity p-4">
+        <div class="bg-white p-8 rounded-2xl w-full max-w-lg shadow-2xl transform scale-100 transition-all border border-gray-100">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-900">Editar Usuário</h3>
+                <button onclick="document.getElementById('editModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            
+            <form method="POST">
+                <input type="hidden" name="action" value="update">
+                <input type="hidden" name="user_id" id="edit_id">
+                
+                <div class="mb-6">
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Nome do Usuário</label>
+                    <input name="nome" id="edit_nome" class="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-800 font-medium bg-gray-50 focus:bg-white">
+                </div>
+
+                <div class="mb-2">
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Nível de Acesso</label>
+                    <div class="space-y-3">
+                        <label class="relative flex items-start p-4 border-2 border-gray-100 rounded-xl cursor-pointer hover:border-purple-200 hover:bg-purple-50 transition-all group">
+                            <input type="radio" name="role" value="admin" class="peer sr-only">
+                            <div class="w-5 h-5 border-2 border-gray-300 rounded-full flex items-center justify-center peer-checked:border-purple-600 peer-checked:bg-purple-600 text-white mt-0.5">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                            <div class="ml-3">
+                                <span class="block text-sm font-bold text-gray-900 group-hover:text-purple-700">Administrador</span>
+                                <span class="block text-xs text-gray-500 mt-0.5">Acesso total (configurações, relatórios, edições).</span>
+                            </div>
+                            <div class="absolute inset-0 border-2 border-purple-600 rounded-xl opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"></div>
+                        </label>
+
+                        <label class="relative flex items-start p-4 border-2 border-gray-100 rounded-xl cursor-pointer hover:border-green-200 hover:bg-green-50 transition-all group">
+                            <input type="radio" name="role" value="estoquista_entrada" class="peer sr-only">
+                            <div class="w-5 h-5 border-2 border-gray-300 rounded-full flex items-center justify-center peer-checked:border-green-600 peer-checked:bg-green-600 text-white mt-0.5">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                            <div class="ml-3">
+                                <span class="block text-sm font-bold text-gray-900 group-hover:text-green-700">Estoquista de Entrada</span>
+                                <span class="block text-xs text-gray-500 mt-0.5">Pode registrar entradas e ver catálogo.</span>
+                            </div>
+                            <div class="absolute inset-0 border-2 border-green-600 rounded-xl opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"></div>
+                        </label>
+
+                        <label class="relative flex items-start p-4 border-2 border-gray-100 rounded-xl cursor-pointer hover:border-red-200 hover:bg-red-50 transition-all group">
+                            <input type="radio" name="role" value="estoquista_saida" class="peer sr-only">
+                            <div class="w-5 h-5 border-2 border-gray-300 rounded-full flex items-center justify-center peer-checked:border-red-600 peer-checked:bg-red-600 text-white mt-0.5">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                            <div class="ml-3">
+                                <span class="block text-sm font-bold text-gray-900 group-hover:text-red-700">Estoquista de Saída</span>
+                                <span class="block text-xs text-gray-500 mt-0.5">Pode registrar saídas e ver catálogo.</span>
+                            </div>
+                            <div class="absolute inset-0 border-2 border-red-600 rounded-xl opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"></div>
+                        </label>
+
+                        <label class="relative flex items-start p-4 border-2 border-gray-100 rounded-xl cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all group">
+                            <input type="radio" name="role" value="visualizador" class="peer sr-only">
+                            <div class="w-5 h-5 border-2 border-gray-300 rounded-full flex items-center justify-center peer-checked:border-gray-600 peer-checked:bg-gray-600 text-white mt-0.5">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                            <div class="ml-3">
+                                <span class="block text-sm font-bold text-gray-900">Apenas Visualizar</span>
+                                <span class="block text-xs text-gray-500 mt-0.5">Vê o dashboard e itens, mas não edita.</span>
+                            </div>
+                            <div class="absolute inset-0 border-2 border-gray-600 rounded-xl opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-100">
+                    <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="px-5 py-2.5 text-gray-600 hover:bg-gray-100 rounded-xl font-medium transition-colors">Cancelar</button>
+                    <button class="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all transform hover:-translate-y-0.5">Salvar Alterações</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script is:inline>
+        function openEdit(id, nome, role) {
+            document.getElementById('edit_id').value = id;
+            document.getElementById('edit_nome').value = nome;
+            
+            // Marca o radio button correto
+            const radios = document.getElementsByName('role');
+            let roleToCheck = role.toLowerCase();
+            if (roleToCheck === 'super admin') roleToCheck = 'admin'; // Normaliza super admin para a opção admin
+            
+            for(let r of radios) {
+                if(r.value === roleToCheck) r.checked = true;
+            }
+            
+            document.getElementById('editModal').classList.remove('hidden');
+        }
+    </script>
+  </div>
 </Layout>

@@ -1,176 +1,235 @@
 ---
+// src/pages/itens.astro
 import Layout from '../layouts/Layout.astro';
-import { supabase } from '$lib/supabase';
+import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar.astro';
-import { getStockStatus } from '../utils/status.ts';
 import '../styles/global.css';
 
-// Autenticação
-const user = Astro.locals.user;
+// 1. Verificação de Segurança
+const { data: { user } } = await supabase.auth.getUser();
 if (!user) return Astro.redirect('/login');
 
-const userName = user.profile?.name ?? 'Usuário';
-const userRole = user.profile?.role ?? 'Visitante';
+// Busca perfil para garantir o role
+const { data: userProfile } = await supabase.from('profiles').select('role, nome').eq('id', user.id).single();
+
+// Objeto de usuário completo para a Navbar
+const userData = {
+  ...user,
+  profile: userProfile || { role: 'visitante', nome: 'Usuário' }
+};
+
+const userName = userProfile?.nome || 'Usuário';
+const userRole = String(userProfile?.role || 'visitante').toLowerCase().replace('_', ' ').trim();
 const userAvatar = userName.charAt(0).toUpperCase();
 const currentPath = Astro.url.pathname;
 
-// Permissões padrão
-const canSeeItens = ['admin', 'Administrador', 'Estoquista_Entrada', 'Estoquista_Saida'].includes(userRole);
+// 2. Permissões
+const admins = ['admin', 'super admin'];
+const canSeeItens = ['estoquista_entrada', 'estoquista_saida', ...admins].includes(userRole);
 
-// Consulta de produtos
-const { data: produtosData, error: errorProdutos } = await supabase
+if (!canSeeItens) return Astro.redirect('/dashboard?error=acesso_negado');
+
+// ==========================================
+// 📊 LÓGICA DE DADOS (AGRUPADO POR CLIENTE)
+// ==========================================
+
+// 1. Buscar Clientes (Ordenados por nome)
+const { data: clientesData } = await supabase
+  .from('clientes')
+  .select('id, nome, cnpj')
+  .order('nome', { ascending: true });
+
+// 2. Buscar Produtos
+const { data: produtosData } = await supabase
   .from('produtos')
   .select('*')
   .order('nome', { ascending: true });
 
-if (errorProdutos) console.error('Erro ao carregar produtos:', errorProdutos);
+// 3. Agrupar Produtos por Cliente
+// Cria um objeto onde a chave é o ID do cliente
+const catalogoPorCliente = {};
 
-// Consulta de clientes
-const { data: clientesData, error: errorClientes } = await supabase
-  .from('clientes')
-  .select('id, nome, cnpj');
+if (clientesData && produtosData) {
+    // Inicializa o grupo para cada cliente
+    clientesData.forEach(cliente => {
+        catalogoPorCliente[cliente.id] = {
+            info: cliente,
+            produtos: []
+        };
+    });
 
-if (errorClientes) console.error('Erro ao carregar clientes:', errorClientes);
-
-// Mapeamento de clientes
-const clientesMap = Object.fromEntries(
-  (clientesData || []).map(c => [c.id, { nome: c.nome, cnpj: c.cnpj }])
-);
-
-// Função de status do estoque simplificada (CORRIGIDA)
-function getStatus(stock, minStock) {
-  if (stock === 0) return { text: 'Sem Estoque', color: 'status-zero' };
-  if (stock <= minStock) return { text: 'Estoque Baixo', color: 'status-baixo' };
-  return { text: 'Em Estoque', color: 'status-ok' };
+    // Distribui os produtos nas "caixas" dos clientes
+    produtosData.forEach(produto => {
+        if (catalogoPorCliente[produto.cliente_id]) {
+            catalogoPorCliente[produto.cliente_id].produtos.push(produto);
+        }
+    });
 }
 
+// Filtra apenas clientes que têm produtos (Opcional: remova o filter se quiser ver clientes vazios)
+const listaExibicao = Object.values(catalogoPorCliente).filter((grupo: any) => grupo.produtos.length > 0);
+
+
+// 4. Função de Status (CSS CORRIGIDO - Retorna classes Tailwind)
+function getStatus(stock, minStock) {
+  if (stock === 0) {
+    return { 
+        text: 'Sem Estoque', 
+        classes: 'bg-red-100 text-red-700 border border-red-200' 
+    };
+  }
+  if (stock <= minStock) {
+    return { 
+        text: 'Estoque Baixo', 
+        classes: 'bg-yellow-100 text-yellow-700 border border-yellow-200' 
+    };
+  }
+  return { 
+    text: 'Em Estoque', 
+    classes: 'bg-green-100 text-green-700 border border-green-200' 
+  };
+}
 ---
 
-<Layout title="Itens" user={user}>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+<Layout title="Itens e Estoque" user={userData}>
+  <div class="min-h-screen bg-gray-50 flex flex-col">
 
-    <!-- Navbar -->
-    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50 w-full">
-      <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-8">
-          <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-20 w-auto mr-4" />
-          <Navbar user={user} currentPath={currentPath} />
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-16 w-auto" />
         </div>
-        <div class="relative" id="profile-menu-container">
-          <button id="profile-menu-button" class="flex items-center gap-3 cursor-pointer">
-            <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-              <span class="text-white text-sm font-medium">{userAvatar}</span>
+
+        <div class="flex-grow flex justify-center">
+            <Navbar user={userData} currentPath={currentPath} />
+        </div>
+        
+        <div class="flex-shrink-0 relative group ml-6">
+            <button class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
+            </button>
+            
+            <div class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50 animate-fade-in">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                            Sair do Sistema
+                        </button>
+                    </form>
+                </div>
             </div>
-            <div class="hidden sm:block text-left">
-              <p class="text-sm font-medium text-gray-900">{userName}</p>
-              <p class="text-xs text-gray-500">{userRole}</p>
-            </div>
-          </button>
-          <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
-            <div class="px-4 py-2 border-b border-gray-100">
-              <p class="text-sm font-medium text-gray-900 truncate">{userName}</p>
-              <p class="text-xs text-gray-500 truncate">{user.email}</p>
-            </div>
-            <a href="/api/auth/signout" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-              <span>Sair</span>
-            </a>
-          </div>
         </div>
       </div>
     </header>
 
-    <main class="p-6">
-      <div class="max-w-7xl mx-auto">
+    <main class="p-6 max-w-7xl mx-auto w-full space-y-8">
 
-        <div class="flex items-center justify-between mb-8">
-          <div>
-            <h2 class="text-3xl font-bold text-gray-900">Gerenciar Itens</h2>
-            <p class="text-gray-600 mt-2">Visualize todos os produtos ativos no estoque</p>
-          </div>
-          <a href="/itens/novo" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition flex items-center gap-2 font-medium">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6" />
-            </svg>
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">Catálogo de Itens</h2>
+            <p class="text-gray-500 mt-1">Gerencie o estoque organizado por cliente.</p>
+        </div>
+        <a href="/itens/novo" class="bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 transition shadow-md hover:shadow-lg flex items-center gap-2 font-bold">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6" /></svg>
             Novo Item
-          </a>
-        </div>
-
-        <!-- Tabela de Itens -->
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-200">
-          <div class="p-6 border-b border-gray-200 flex justify-between items-center">
-            <h3 class="text-lg font-semibold text-gray-900">Lista de Produtos</h3>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="w-full">
-              <thead>
-                <tr class="border-b border-gray-200 bg-gray-50">
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Produto</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Cliente</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Estoque</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Mínimo</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Status</th>
-                  <th class="py-4 px-6 text-left text-sm font-medium text-gray-600">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {produtosData && produtosData.length > 0 ? produtosData.map((produto) => {
-                  const status = getStatus(produto.estoque_atual, produto.estoque_minimo);
-                  const cliente = clientesMap[produto.cliente_id];
-                  return (
-                    <tr class="border-b border-gray-100 hover:bg-gray-50 transition">
-                      <td class="py-4 px-6 font-medium text-gray-900">{produto.nome}</td>
-                      <td class="py-4 px-6">
-                        {cliente ? (
-                          <span class="font-medium text-gray-900">{cliente.nome}</span>
-                        ) : (
-                          <span class="text-gray-400">N/A</span>
-                        )}
-                      </td>
-                      <td class="py-4 px-6 text-sm text-gray-800">{produto.estoque_atual} {produto.unidade_medida}</td>
-                      <td class="py-4 px-6 text-sm text-gray-800">{produto.estoque_minimo}</td>
-                      <td class="py-4 px-6">
-                      <span class={status.color.toString()}>
-                          {status.text}
-                      </span>
-                      </td>
-                      <td class="py-4 px-6">
-                          <a href={`/itens/excluir/${produto.id}`} title="Excluir Item" class="text-red-600 hover:text-red-800 transition">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                            </svg>
-                          </a>
-                        </a>
-                      </td>
-                    </tr>
-                  );
-                }) : (
-                  <tr>
-                    <td colspan="6" class="py-8 px-6 text-center text-gray-500">
-                      Nenhum produto encontrado
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        </a>
       </div>
+
+      <div class="space-y-8">
+        {listaExibicao.length > 0 ? (
+            listaExibicao.map((grupo: any) => (
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">{grupo.info.nome}</h3>
+                                <p class="text-xs text-gray-500 font-mono">{grupo.info.cnpj || 'Sem CNPJ'}</p>
+                            </div>
+                        </div>
+                        <span class="text-xs font-bold bg-white border border-gray-200 px-3 py-1 rounded-full text-gray-600">
+                            {grupo.produtos.length} Itens
+                        </span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-white text-gray-500 border-b border-gray-100">
+                                <tr>
+                                    <th class="px-6 py-3 font-medium">Produto</th>
+                                    <th class="px-6 py-3 font-medium">Estoque Atual</th>
+                                    <th class="px-6 py-3 font-medium">Mínimo</th>
+                                    <th class="px-6 py-3 font-medium">Status</th>
+                                    <th class="px-6 py-3 font-medium text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-50">
+                                {grupo.produtos.map((produto) => {
+                                    const status = getStatus(produto.estoque_atual, produto.estoque_minimo);
+                                    return (
+                                        <tr class="hover:bg-blue-50/50 transition-colors group">
+                                            <td class="px-6 py-4 font-semibold text-gray-900">
+                                                {produto.nome}
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class="font-mono text-gray-700 bg-gray-100 px-2 py-1 rounded border border-gray-200">
+                                                    {produto.estoque_atual} {produto.unidade_medida}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 text-gray-500">
+                                                {produto.estoque_minimo}
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span class={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide inline-block ${status.classes}`}>
+                                                    {status.text}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 text-right">
+                                                <div class="flex justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
+                                                    <a href={`/itens/editar/${produto.id}`} class="text-blue-600 hover:text-blue-800 font-medium text-xs border border-blue-200 hover:bg-blue-50 px-2 py-1 rounded">
+                                                        Editar
+                                                    </a>
+                                                    <form method="POST" action="/api/itens/excluir" onsubmit="return confirm('Tem certeza?');" style="display:inline;">
+                                                        <input type="hidden" name="id" value={produto.id} />
+                                                        <button class="text-red-600 hover:text-red-800 font-medium text-xs border border-red-200 hover:bg-red-50 px-2 py-1 rounded">
+                                                            Excluir
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            ))
+        ) : (
+            <div class="text-center py-20 bg-white rounded-2xl border border-gray-200 border-dashed">
+                <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+                <h3 class="text-lg font-medium text-gray-900">Estoque Vazio</h3>
+                <p class="text-gray-500">Nenhum item cadastrado no momento.</p>
+            </div>
+        )}
+      </div>
+
     </main>
-    <script>
-      const menuButton = document.getElementById('profile-menu-button');
-      const menuDropdown = document.getElementById('profile-menu-dropdown');
-      const menuContainer = document.getElementById('profile-menu-container');
-      if (menuButton && menuDropdown && menuContainer) {
-        menuButton.addEventListener('click', () => {
-          menuDropdown.classList.toggle('hidden');
-        });
-        document.addEventListener('click', (event) => {
-          if (!menuContainer.contains(event.target)) {
-            menuDropdown.classList.add('hidden');
-          }
-        });
-      }
-    </script>
   </div>
 </Layout>

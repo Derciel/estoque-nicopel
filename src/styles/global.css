@@ -1,23 +1,62 @@
-/* src/styles/global.css */
-
+/* Diretivas Obrigatórias do Tailwind */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Aqui criamos nossos próprios componentes de "pílula" de status
-  usando as classes do Tailwind.
-*/
+/* Camada de Componentes Personalizados */
 @layer components {
-  .status-pill {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  /* Classe blindada para os ícones dos KPIs não sumirem */
+  .kpi-icon-fix {
+    @apply w-12 h-12 min-w-[3rem] min-h-[3rem] flex-shrink-0 flex items-center justify-center rounded-xl;
   }
-  .status-ok {
-    @apply status-pill bg-green-50 text-green-600;
+
+  /* Badges de Status padronizados */
+  .badge {
+    @apply px-2 py-1 rounded-md text-xs font-bold uppercase tracking-wide border;
   }
-  .status-baixo {
-    @apply status-pill bg-yellow-50 text-yellow-600;
+}
+
+/* Animações Personalizadas (Usado nos Modais e Dropdowns) */
+@keyframes fadeIn {
+  from { 
+    opacity: 0; 
+    transform: translateY(-8px); 
   }
-  .status-zero {
-    @apply status-pill bg-red-50 text-red-600;
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
   }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* Melhoria visual da Barra de Rolagem (Navbar e Tabelas) */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1; /* slate-300 */
+    border-radius: 20px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8; /* slate-400 */
+  }
+}
+
+/* Garante altura total */
+html, body {
+  height: 100%;
+  background-color: #f9fafb; /* gray-50 */
 }

@@ -9,8 +9,8 @@ const userAvatar = userName.charAt(0).toUpperCase() || '#';
 
 // Lógica de Permissões para o Menu
 const canSeeItens = ['admin', 'Estoquista_Entrada', 'Estoquista_Saida'].includes(userRole);
-const canSeeClientes = ['admin', 'Estoquista_Saida', 'Estoquista_Entrada'].includes(userRole);
-const canSeeEntrada = ['admin', 'Estoquista_Entrada'].includes(userRole);
+const canSeeClientes = ['admin', 'Estoquista_Saida', 'estoquista_entrada'].includes(userRole);
+const canSeeEntrada = ['admin', 'estoquista_entrada'].includes(userRole);
 const canSeeSaida = ['admin', 'Estoquista_Saida'].includes(userRole);
 const canSeeRelatorios = ['admin'].includes(userRole);
 const canSeeImportacao = ['admin'].includes(userRole);
