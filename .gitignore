@@ -18,3 +18,4 @@ npm-debug.log*
 # Arquivos temporários e de editor
 .DS_Store
 *.swp
+.astro/
