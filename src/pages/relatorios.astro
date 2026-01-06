@@ -30,13 +30,13 @@ if (!masterRoles.includes(userRole)) {
 const { data: clientes } = await supabase.from('clientes').select('*').order('nome');
 const { data: produtos } = await supabase.from('produtos').select('*').order('nome');
 
+// Agrupa os dados para facilitar a iteração, mas vamos exibir "desagrupado" visualmente
 const relatorio = clientes?.map(cliente => {
     const produtosDoCliente = produtos?.filter(p => p.cliente_id === cliente.id) || [];
     
+    // Filtro de Baixo Estoque (apenas cálculo para resumo se precisar no futuro)
     const totalItens = produtosDoCliente.reduce((acc, p) => acc + p.estoque_atual, 0);
     const itensZerados = produtosDoCliente.filter(p => p.estoque_atual === 0).length;
-    
-    // Filtro de Baixo Estoque
     const itensBaixo = produtosDoCliente.filter(p => {
         const minimo = p.estoque_minimo || 0;
         return p.estoque_atual > 0 && p.estoque_atual <= minimo;
@@ -49,7 +49,7 @@ const relatorio = clientes?.map(cliente => {
     };
 }).filter(grupo => grupo.produtos.length > 0);
 
-// Função Auxiliar
+// Função Auxiliar de Status
 function getStatusData(atual, min) {
     if (atual === 0) return { key: 'zerado', text: 'SEM ESTOQUE', class: 'bg-red-100 text-red-700 border-red-200' };
     if (atual <= min) return { key: 'baixo', text: 'ESTOQUE BAIXO', class: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
@@ -106,7 +106,7 @@ function getSituacaoTexto(atual, min) {
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h2 class="text-3xl font-bold text-gray-900">Relatório de Inventário</h2>
-          <p class="text-gray-600 mt-1">Posição atual do estoque agrupada por cliente.</p>
+          <p class="text-gray-600 mt-1">Visão geral do estoque de todos os clientes.</p>
         </div>
         
         <div class="flex flex-wrap items-center gap-3">
@@ -149,37 +149,29 @@ function getSituacaoTexto(atual, min) {
           <table class="w-full text-sm text-left" id="tabela-inventario">
             <thead class="bg-gray-50 text-gray-700 border-b border-gray-200 uppercase text-xs">
               <tr>
-                <th class="py-4 px-6">Produto / Categoria</th>
-                <th class="py-4 px-6 text-center">Status</th>
-                <th class="py-4 px-6 text-right">Mínimo</th>
-                <th class="py-4 px-6 text-right">Atual</th>
-                <th class="py-4 px-6 text-right">Situação</th>
+                <th class="py-4 px-6 bg-gray-50">Cliente</th>
+                <th class="py-4 px-6 bg-gray-50">Produto / Categoria</th>
+                <th class="py-4 px-6 text-center bg-gray-50">Status</th>
+                <th class="py-4 px-6 text-right bg-gray-50">Mínimo</th>
+                <th class="py-4 px-6 text-right bg-gray-50">Atual</th>
+                <th class="py-4 px-6 text-right bg-gray-50">Situação</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100" id="tabela-body">
               {relatorio?.map((grupo) => (
                 <>
-                  <tr class="bg-blue-50/50 border-t border-b border-blue-100 linha-cliente" data-grupo={grupo.info.id}>
-                    <td colspan="5" class="py-3 px-6">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <span class="font-bold text-lg text-gray-900">{grupo.info.nome}</span>
-                                <span class="text-xs text-gray-500 ml-2 font-mono">{grupo.info.cnpj}</span>
-                            </div>
-                            <div class="flex gap-2 text-xs">
-                                <span class="px-2 py-1 bg-white border rounded text-gray-600">Total: <strong>{grupo.resumo.totalItens}</strong></span>
-                                {grupo.resumo.itensZerados > 0 && <span class="px-2 py-1 bg-red-100 text-red-700 rounded font-bold">Zerados: {grupo.resumo.itensZerados}</span>}
-                            </div>
-                        </div>
-                    </td>
-                  </tr>
-
+                  {/* Removemos a linha agrupadora e duplicamos o cliente em cada linha */}
                   {grupo.produtos.map((prod) => {
                     const statusData = getStatusData(prod.estoque_atual, prod.estoque_minimo);
                     const situacao = getSituacaoTexto(prod.estoque_atual, prod.estoque_minimo);
                     
                     return (
                         <tr class="hover:bg-gray-50 transition linha-produto" data-status={statusData.key} data-pai={grupo.info.id}>
+                            <td class="py-3 px-6 font-medium text-gray-900 border-r border-gray-100">
+                                {grupo.info.nome}
+                                <br/><span class="text-xs text-gray-400 font-mono">{grupo.info.cnpj}</span>
+                            </td>
+                            
                             <td class="py-3 px-6">
                                 <p class="font-bold text-gray-800">{prod.nome}</p>
                                 <p class="text-xs text-gray-500">{prod.categoria}</p>
@@ -201,7 +193,7 @@ function getSituacaoTexto(atual, min) {
               ))}
               
               {(!relatorio || relatorio.length === 0) && (
-                <tr><td colspan="5" class="py-12 text-center text-gray-400">Nenhum produto cadastrado no estoque.</td></tr>
+                <tr><td colspan="6" class="py-12 text-center text-gray-400">Nenhum produto cadastrado no estoque.</td></tr>
               )}
             </tbody>
           </table>
@@ -221,7 +213,6 @@ function getSituacaoTexto(atual, min) {
     filtroStatus?.addEventListener('change', (e) => {
         const filtro = e.target.value; 
         const linhasProduto = document.querySelectorAll('.linha-produto');
-        const linhasCliente = document.querySelectorAll('.linha-cliente');
 
         linhasProduto.forEach(linha => {
             const status = linha.dataset.status; 
@@ -238,22 +229,11 @@ function getSituacaoTexto(atual, min) {
             if (mostrar) linha.classList.remove('hidden');
             else linha.classList.add('hidden');
         });
-
-        linhasCliente.forEach(clienteRow => {
-            const idCliente = clienteRow.dataset.grupo;
-            const produtosVisiveis = document.querySelectorAll(`.linha-produto[data-pai="${idCliente}"]:not(.hidden)`);
-            
-            if (produtosVisiveis.length > 0) {
-                clienteRow.classList.remove('hidden');
-            } else {
-                clienteRow.classList.add('hidden');
-            }
-        });
     });
 
     // --- PDF ---
     document.getElementById('btnPDF')?.addEventListener('click', () => {
-      const doc = new jsPDF();
+      const doc = new jsPDF('l', 'mm', 'a4'); // 'l' = Landscape (Paisagem) para caber mais colunas
       doc.text("Relatório de Posição de Estoque", 14, 15);
       doc.setFontSize(10);
       doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 22);
@@ -265,16 +245,10 @@ function getSituacaoTexto(atual, min) {
         styles: { fontSize: 8 },
         headStyles: { fillColor: [66, 133, 244] },
         didParseCell: function (data) {
+            // Esconde linhas que foram filtradas pelo usuário
             if (data.row.raw && data.row.raw.classList && data.row.raw.classList.contains('hidden')) {
                 data.cell.styles.fontSize = 0;
                 data.row.height = 0;
-                return;
-            }
-            if (data.row.raw.cells[0].colSpan > 1) {
-                data.cell.styles.fillColor = [240, 245, 255];
-                data.cell.styles.fontStyle = 'bold';
-                data.cell.styles.textColor = [30, 30, 30];
-                data.cell.styles.halign = 'left';
             }
         }
       });
@@ -284,6 +258,9 @@ function getSituacaoTexto(atual, min) {
     // --- Excel ---
     document.getElementById('btnExcel')?.addEventListener('click', () => {
       const table = document.getElementById('tabela-inventario');
+      
+      // Cria o Excel. Como a tabela agora é "plana" (sem linhas de cabeçalho no meio),
+      // o Excel gerado será perfeito para filtrar.
       const wb = XLSX.utils.table_to_book(table, { sheet: "Inventário" });
       XLSX.writeFile(wb, 'inventario-estoque.xlsx');
     });

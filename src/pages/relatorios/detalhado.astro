@@ -4,6 +4,7 @@ import Layout from '../../layouts/Layout.astro';
 import { supabase } from '../../lib/supabase';
 import Navbar from '../../components/Navbar.astro';
 
+// 1. Segurança e Sessão
 const { data: { user } } = await supabase.auth.getUser();
 if (!user) return Astro.redirect('/login');
 
@@ -14,19 +15,21 @@ const userRole = String(userProfile?.role || '').toLowerCase();
 // Permissão
 if (!['admin', 'super admin'].includes(userRole)) return Astro.redirect('/dashboard');
 
-// Parâmetros de Filtro (URL Search Params)
+// 2. Filtros e Dados
 const url = new URL(Astro.request.url);
-const dataInicio = url.searchParams.get('inicio') || new Date().toISOString().split('T')[0]; // Hoje
-const dataFim = url.searchParams.get('fim') || new Date().toISOString().split('T')[0]; // Hoje
+const hoje = new Date().toISOString().split('T')[0];
+
+const dataInicio = url.searchParams.get('inicio') || hoje;
+const dataFim = url.searchParams.get('fim') || hoje;
 const tipoMov = url.searchParams.get('tipo') || 'todos';
 
-// Lógica de Busca
+// 3. Query
 let query = supabase
   .from('movimentacoes')
   .select(`
     id, tipo, quantidade, data_movimentacao, motivo,
-    produtos (nome, categoria),
-    clientes (nome)
+    produto:produtos!movimentacoes_produto_id_fkey (nome, categoria),
+    cliente:clientes (nome)
   `)
   .gte('data_movimentacao', `${dataInicio}T00:00:00`)
   .lte('data_movimentacao', `${dataFim}T23:59:59`)
@@ -38,8 +41,11 @@ if (tipoMov !== 'todos') {
 
 const { data: movimentacoes, error } = await query;
 
+if (error) console.error("Erro na busca detalhada:", error);
+
 function formatDate(dateString) {
-    return new Date(dateString).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+    if(!dateString) return '-';
+    return new Date(dateString).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 ---
 
@@ -49,10 +55,11 @@ function formatDate(dateString) {
     <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
         <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
             <div class="flex items-center gap-4">
-                <a href="/relatorios" class="text-gray-500 hover:text-blue-600 transition">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                <a href="/relatorios" class="text-gray-500 hover:text-blue-600 transition flex items-center gap-1 text-sm font-medium">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                    Voltar
                 </a>
-                <h1 class="text-xl font-bold text-gray-800">Movimentações por Período</h1>
+                <h1 class="text-xl font-bold text-gray-800 border-l pl-4 border-gray-300">Movimentações por Período</h1>
             </div>
             <Navbar user={userData} currentPath="/relatorios" />
         </div>
@@ -60,24 +67,31 @@ function formatDate(dateString) {
 
     <main class="p-6 max-w-7xl mx-auto w-full space-y-6">
         
+        {error && (
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <strong class="font-bold">Erro técnico:</strong>
+                <span class="block sm:inline">{error.message} - {error.details}</span>
+            </div>
+        )}
+
         <form class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Data Início</label>
-                <input type="date" name="inicio" value={dataInicio} class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                <input type="date" name="inicio" value={dataInicio} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Data Fim</label>
-                <input type="date" name="fim" value={dataFim} class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                <input type="date" name="fim" value={dataFim} class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-                <select name="tipo" class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white">
+                <select name="tipo" class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     <option value="todos" selected={tipoMov === 'todos'}>Todos</option>
                     <option value="entrada" selected={tipoMov === 'entrada'}>Entradas</option>
                     <option value="saida" selected={tipoMov === 'saida'}>Saídas</option>
                 </select>
             </div>
-            <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold transition h-10 flex items-center justify-center gap-2">
+            <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold transition h-10 flex items-center justify-center gap-2 shadow-md">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 Filtrar
             </button>
@@ -86,14 +100,21 @@ function formatDate(dateString) {
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <h3 class="font-bold text-gray-700">Resultados ({movimentacoes?.length || 0})</h3>
-                <button type="button" onclick="window.print()" class="text-blue-600 hover:underline text-sm font-medium flex items-center gap-1">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
-                    Imprimir
-                </button>
+                
+                <div class="flex gap-3">
+                    <button id="btnExportarExcel" class="flex items-center gap-2 text-green-600 hover:text-green-700 hover:bg-green-50 px-3 py-2 rounded-lg transition text-sm font-medium">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        Excel
+                    </button>
+                    <button type="button" onclick="window.print()" class="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2 rounded-lg transition text-sm font-medium">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                        Imprimir
+                    </button>
+                </div>
             </div>
             
             <div class="overflow-x-auto">
-                <table class="w-full text-sm text-left">
+                <table class="w-full text-sm text-left" id="tabela-resultados">
                     <thead class="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
                         <tr>
                             <th class="px-6 py-3">Data</th>
@@ -107,20 +128,29 @@ function formatDate(dateString) {
                     <tbody class="divide-y divide-gray-50">
                         {movimentacoes && movimentacoes.length > 0 ? movimentacoes.map((mov: any) => (
                             <tr class="hover:bg-blue-50/30 transition">
-                                <td class="px-6 py-3 text-gray-600 font-mono text-xs">{formatDate(mov.data_movimentacao)}</td>
+                                <td class="px-6 py-3 text-gray-600 font-mono text-xs whitespace-nowrap">{formatDate(mov.data_movimentacao)}</td>
                                 <td class="px-6 py-3">
-                                    <span class={`px-2 py-1 rounded text-xs font-bold uppercase ${mov.tipo === 'entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                    <span class={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                                        mov.tipo === 'entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                    }`}>
                                         {mov.tipo}
                                     </span>
                                 </td>
-                                <td class="px-6 py-3 font-medium text-gray-900">{mov.clientes?.nome || '-'}</td>
+                                <td class="px-6 py-3 font-medium text-gray-900">
+                                    {mov.cliente ? (Array.isArray(mov.cliente) ? mov.cliente[0]?.nome : mov.cliente.nome) : '-'}
+                                </td>
                                 <td class="px-6 py-3 text-gray-800">
-                                    {mov.produtos?.nome} <span class="text-gray-400 text-xs">({mov.produtos?.categoria})</span>
+                                    <div class="font-bold">
+                                        {mov.produto ? (Array.isArray(mov.produto) ? mov.produto[0]?.nome : mov.produto.nome) : 'Item Removido'}
+                                    </div>
+                                    <div class="text-xs text-gray-500">
+                                        {mov.produto ? (Array.isArray(mov.produto) ? mov.produto[0]?.categoria : mov.produto.categoria) : '-'}
+                                    </div>
                                 </td>
                                 <td class="px-6 py-3 text-right font-bold text-gray-900">
                                     {mov.tipo === 'entrada' ? '+' : '-'}{mov.quantidade}
                                 </td>
-                                <td class="px-6 py-3 text-gray-500 italic text-xs">{mov.motivo}</td>
+                                <td class="px-6 py-3 text-gray-500 italic text-xs truncate max-w-xs">{mov.motivo}</td>
                             </tr>
                         )) : (
                             <tr><td colspan="6" class="px-6 py-12 text-center text-gray-400">Nenhum registro encontrado neste período.</td></tr>
@@ -131,4 +161,28 @@ function formatDate(dateString) {
         </div>
     </main>
   </div>
+
+  <script>
+    import * as XLSX from 'xlsx';
+
+    const btnExcel = document.getElementById('btnExportarExcel');
+    
+    if (btnExcel) {
+        btnExcel.addEventListener('click', () => {
+            const table = document.getElementById('tabela-resultados');
+            
+            // Verifica se tem dados antes de exportar
+            if(!table || table.rows.length <= 1) {
+                alert('Não há dados para exportar.');
+                return;
+            }
+
+            const wb = XLSX.utils.table_to_book(table, { sheet: "Movimentações" });
+            
+            // Gera nome do arquivo com a data de hoje
+            const hoje = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(wb, `movimentacoes_${hoje}.xlsx`);
+        });
+    }
+  </script>
 </Layout>
