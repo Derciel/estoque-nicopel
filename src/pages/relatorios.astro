@@ -49,7 +49,7 @@ const relatorio = clientes?.map(cliente => {
     };
 }).filter(grupo => grupo.produtos.length > 0);
 
-// Função Auxiliar Modificada para retornar uma chave de status
+// Função Auxiliar
 function getStatusData(atual, min) {
     if (atual === 0) return { key: 'zerado', text: 'SEM ESTOQUE', class: 'bg-red-100 text-red-700 border-red-200' };
     if (atual <= min) return { key: 'baixo', text: 'ESTOQUE BAIXO', class: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
@@ -110,6 +110,14 @@ function getSituacaoTexto(atual, min) {
         </div>
         
         <div class="flex flex-wrap items-center gap-3">
+            
+            <a href="/relatorios/detalhado" class="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl hover:bg-blue-700 transition shadow-sm font-medium text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Por Período
+            </a>
+
+            <div class="h-8 w-px bg-gray-300 mx-1 hidden md:block"></div>
+
             <div class="relative">
                 <select id="filtroStatus" class="appearance-none bg-white border border-gray-300 text-gray-700 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium shadow-sm cursor-pointer">
                     <option value="todos">📋 Mostrar Todos</option>
@@ -211,13 +219,12 @@ function getSituacaoTexto(atual, min) {
     const filtroStatus = document.getElementById('filtroStatus');
     
     filtroStatus?.addEventListener('change', (e) => {
-        const filtro = e.target.value; // todos, atencao, zerado, baixo, normal
+        const filtro = e.target.value; 
         const linhasProduto = document.querySelectorAll('.linha-produto');
         const linhasCliente = document.querySelectorAll('.linha-cliente');
 
-        // 1. Mostrar/Esconder Produtos
         linhasProduto.forEach(linha => {
-            const status = linha.dataset.status; // zerado, baixo, normal
+            const status = linha.dataset.status; 
             let mostrar = false;
 
             if (filtro === 'todos') {
@@ -232,10 +239,8 @@ function getSituacaoTexto(atual, min) {
             else linha.classList.add('hidden');
         });
 
-        // 2. Esconder Clientes (Cabeçalhos) que ficaram sem produtos visíveis
         linhasCliente.forEach(clienteRow => {
             const idCliente = clienteRow.dataset.grupo;
-            // Busca produtos filhos deste cliente que NÃO estão ocultos
             const produtosVisiveis = document.querySelectorAll(`.linha-produto[data-pai="${idCliente}"]:not(.hidden)`);
             
             if (produtosVisiveis.length > 0) {
@@ -253,10 +258,6 @@ function getSituacaoTexto(atual, min) {
       doc.setFontSize(10);
       doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 22);
 
-      // Clona a tabela para o PDF pegar apenas o que está visível
-      // (Se quiser imprimir TUDO mesmo filtrado, use '#tabela-inventario' direto)
-      // Aqui vamos usar a tabela visual para respeitar o filtro
-      
       autoTable(doc, {
         html: '#tabela-inventario',
         startY: 30,
@@ -264,13 +265,11 @@ function getSituacaoTexto(atual, min) {
         styles: { fontSize: 8 },
         headStyles: { fillColor: [66, 133, 244] },
         didParseCell: function (data) {
-            // Se a linha estiver oculta pelo filtro, não renderiza no PDF
             if (data.row.raw && data.row.raw.classList && data.row.raw.classList.contains('hidden')) {
                 data.cell.styles.fontSize = 0;
                 data.row.height = 0;
                 return;
             }
-
             if (data.row.raw.cells[0].colSpan > 1) {
                 data.cell.styles.fillColor = [240, 245, 255];
                 data.cell.styles.fontStyle = 'bold';
@@ -284,13 +283,8 @@ function getSituacaoTexto(atual, min) {
 
     // --- Excel ---
     document.getElementById('btnExcel')?.addEventListener('click', () => {
-      // Cria uma tabela temporária apenas com as linhas visíveis para exportar corretamente
       const table = document.getElementById('tabela-inventario');
       const wb = XLSX.utils.table_to_book(table, { sheet: "Inventário" });
-      
-      // O XLSX geralmente pega tudo do DOM, mesmo hidden. 
-      // Se precisar filtrar no Excel, seria necessário criar um JSON filtrado.
-      // Por padrão, ele exportará a estrutura atual.
       XLSX.writeFile(wb, 'inventario-estoque.xlsx');
     });
   </script>
