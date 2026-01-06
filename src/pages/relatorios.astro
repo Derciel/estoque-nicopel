@@ -24,31 +24,19 @@ if (!masterRoles.includes(userRole)) {
 }
 
 // ==========================================
-// 📊 LÓGICA DE DADOS (INVENTÁRIO ATUAL)
+// 📊 LÓGICA DE DADOS
 // ==========================================
 
-// 1. Buscar Clientes
-const { data: clientes } = await supabase
-  .from('clientes')
-  .select('*')
-  .order('nome');
+const { data: clientes } = await supabase.from('clientes').select('*').order('nome');
+const { data: produtos } = await supabase.from('produtos').select('*').order('nome');
 
-// 2. Buscar Produtos
-const { data: produtos } = await supabase
-  .from('produtos')
-  .select('*')
-  .order('nome');
-
-// 3. Agrupar Dados
 const relatorio = clientes?.map(cliente => {
-    // Filtra produtos deste cliente
     const produtosDoCliente = produtos?.filter(p => p.cliente_id === cliente.id) || [];
     
-    // Cálculos de resumo
     const totalItens = produtosDoCliente.reduce((acc, p) => acc + p.estoque_atual, 0);
     const itensZerados = produtosDoCliente.filter(p => p.estoque_atual === 0).length;
     
-    // Fix: Movendo a comparação para fora do HTML para evitar erro de parser
+    // Filtro de Baixo Estoque
     const itensBaixo = produtosDoCliente.filter(p => {
         const minimo = p.estoque_minimo || 0;
         return p.estoque_atual > 0 && p.estoque_atual <= minimo;
@@ -59,20 +47,19 @@ const relatorio = clientes?.map(cliente => {
         produtos: produtosDoCliente,
         resumo: { totalItens, itensZerados, itensBaixo }
     };
-}).filter(grupo => grupo.produtos.length > 0); // Remove clientes sem produtos
+}).filter(grupo => grupo.produtos.length > 0);
 
-// 4. Funções Auxiliares de Visualização (CORREÇÃO DO ERRO)
-// Movemos a lógica de decisão de cor/texto para cá para não usar '<' no HTML
-function getStatusBadge(atual, min) {
-    if (atual === 0) return { text: 'SEM ESTOQUE', class: 'bg-red-100 text-red-700 border-red-200' };
-    if (atual <= min) return { text: 'ESTOQUE BAIXO', class: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-    return { text: 'EM ESTOQUE', class: 'bg-green-100 text-green-700 border-green-200' };
+// Função Auxiliar Modificada para retornar uma chave de status
+function getStatusData(atual, min) {
+    if (atual === 0) return { key: 'zerado', text: 'SEM ESTOQUE', class: 'bg-red-100 text-red-700 border-red-200' };
+    if (atual <= min) return { key: 'baixo', text: 'ESTOQUE BAIXO', class: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+    return { key: 'normal', text: 'EM ESTOQUE', class: 'bg-green-100 text-green-700 border-green-200' };
 }
 
 function getSituacaoTexto(atual, min) {
-    if (atual === 0) return { text: 'Falta Repor', class: 'text-red-600 font-bold' };
-    if (atual <= min) return { text: 'Comprar', class: 'text-yellow-600 font-bold' };
-    return { text: 'OK', class: 'text-green-600 font-medium' };
+    if (atual === 0) return { text: 'PRODUZIR', class: 'text-red-600 font-bold' };
+    if (atual <= min) return { text: 'AGUARDANDO PRODUÇÃO', class: 'text-yellow-600 font-bold' };
+    return { text: 'ESTOQUE OK', class: 'text-green-600 font-medium' };
 }
 ---
 
@@ -122,15 +109,30 @@ function getSituacaoTexto(atual, min) {
           <p class="text-gray-600 mt-1">Posição atual do estoque agrupada por cliente.</p>
         </div>
         
-        <div class="flex gap-3">
-          <button id="btnPDF" class="flex items-center gap-2 bg-red-600 text-white px-5 py-2.5 rounded-xl hover:bg-red-700 transition shadow-sm font-medium">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-            PDF
-          </button>
-          <button id="btnExcel" class="flex items-center gap-2 bg-green-600 text-white px-5 py-2.5 rounded-xl hover:bg-green-700 transition shadow-sm font-medium">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            Excel
-          </button>
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="relative">
+                <select id="filtroStatus" class="appearance-none bg-white border border-gray-300 text-gray-700 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium shadow-sm cursor-pointer">
+                    <option value="todos">📋 Mostrar Todos</option>
+                    <option value="atencao">⚠️ Reposição (Baixo/Zerado)</option>
+                    <option value="zerado">🔴 Apenas Zerados</option>
+                    <option value="baixo">🟡 Apenas Baixo</option>
+                    <option value="normal">🟢 Apenas Normal</option>
+                </select>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </div>
+            </div>
+
+            <div class="h-8 w-px bg-gray-300 mx-1 hidden md:block"></div>
+
+            <button id="btnPDF" class="flex items-center gap-2 bg-red-600 text-white px-4 py-2.5 rounded-xl hover:bg-red-700 transition shadow-sm font-medium text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                PDF
+            </button>
+            <button id="btnExcel" class="flex items-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-xl hover:bg-green-700 transition shadow-sm font-medium text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Excel
+            </button>
         </div>
       </div>
 
@@ -146,10 +148,10 @@ function getSituacaoTexto(atual, min) {
                 <th class="py-4 px-6 text-right">Situação</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
+            <tbody class="divide-y divide-gray-100" id="tabela-body">
               {relatorio?.map((grupo) => (
                 <>
-                  <tr class="bg-blue-50/50 border-t border-b border-blue-100">
+                  <tr class="bg-blue-50/50 border-t border-b border-blue-100 linha-cliente" data-grupo={grupo.info.id}>
                     <td colspan="5" class="py-3 px-6">
                         <div class="flex justify-between items-center">
                             <div>
@@ -165,19 +167,18 @@ function getSituacaoTexto(atual, min) {
                   </tr>
 
                   {grupo.produtos.map((prod) => {
-                    // Usamos as funções criadas lá em cima para evitar lógica complexa no HTML
-                    const badge = getStatusBadge(prod.estoque_atual, prod.estoque_minimo);
+                    const statusData = getStatusData(prod.estoque_atual, prod.estoque_minimo);
                     const situacao = getSituacaoTexto(prod.estoque_atual, prod.estoque_minimo);
                     
                     return (
-                        <tr class="hover:bg-gray-50 transition">
+                        <tr class="hover:bg-gray-50 transition linha-produto" data-status={statusData.key} data-pai={grupo.info.id}>
                             <td class="py-3 px-6">
                                 <p class="font-bold text-gray-800">{prod.nome}</p>
                                 <p class="text-xs text-gray-500">{prod.categoria}</p>
                             </td>
                             <td class="py-3 px-6 text-center">
-                                <span class={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide border ${badge.class}`}>
-                                    {badge.text}
+                                <span class={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide border ${statusData.class}`}>
+                                    {statusData.text}
                                 </span>
                             </td>
                             <td class="py-3 px-6 text-right text-gray-500">{prod.estoque_minimo}</td>
@@ -206,13 +207,56 @@ function getSituacaoTexto(atual, min) {
     import autoTable from 'jspdf-autotable';
     import * as XLSX from 'xlsx';
 
-    // PDF
+    // --- LÓGICA DE FILTRAGEM ---
+    const filtroStatus = document.getElementById('filtroStatus');
+    
+    filtroStatus?.addEventListener('change', (e) => {
+        const filtro = e.target.value; // todos, atencao, zerado, baixo, normal
+        const linhasProduto = document.querySelectorAll('.linha-produto');
+        const linhasCliente = document.querySelectorAll('.linha-cliente');
+
+        // 1. Mostrar/Esconder Produtos
+        linhasProduto.forEach(linha => {
+            const status = linha.dataset.status; // zerado, baixo, normal
+            let mostrar = false;
+
+            if (filtro === 'todos') {
+                mostrar = true;
+            } else if (filtro === 'atencao') {
+                if (status === 'zerado' || status === 'baixo') mostrar = true;
+            } else {
+                if (status === filtro) mostrar = true;
+            }
+
+            if (mostrar) linha.classList.remove('hidden');
+            else linha.classList.add('hidden');
+        });
+
+        // 2. Esconder Clientes (Cabeçalhos) que ficaram sem produtos visíveis
+        linhasCliente.forEach(clienteRow => {
+            const idCliente = clienteRow.dataset.grupo;
+            // Busca produtos filhos deste cliente que NÃO estão ocultos
+            const produtosVisiveis = document.querySelectorAll(`.linha-produto[data-pai="${idCliente}"]:not(.hidden)`);
+            
+            if (produtosVisiveis.length > 0) {
+                clienteRow.classList.remove('hidden');
+            } else {
+                clienteRow.classList.add('hidden');
+            }
+        });
+    });
+
+    // --- PDF ---
     document.getElementById('btnPDF')?.addEventListener('click', () => {
       const doc = new jsPDF();
       doc.text("Relatório de Posição de Estoque", 14, 15);
       doc.setFontSize(10);
       doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 22);
 
+      // Clona a tabela para o PDF pegar apenas o que está visível
+      // (Se quiser imprimir TUDO mesmo filtrado, use '#tabela-inventario' direto)
+      // Aqui vamos usar a tabela visual para respeitar o filtro
+      
       autoTable(doc, {
         html: '#tabela-inventario',
         startY: 30,
@@ -220,22 +264,33 @@ function getSituacaoTexto(atual, min) {
         styles: { fontSize: 8 },
         headStyles: { fillColor: [66, 133, 244] },
         didParseCell: function (data) {
-            // Estiliza a linha do Cliente (que tem colspan)
+            // Se a linha estiver oculta pelo filtro, não renderiza no PDF
+            if (data.row.raw && data.row.raw.classList && data.row.raw.classList.contains('hidden')) {
+                data.cell.styles.fontSize = 0;
+                data.row.height = 0;
+                return;
+            }
+
             if (data.row.raw.cells[0].colSpan > 1) {
-                data.cell.styles.fillColor = [240, 245, 255]; // Azul claro
+                data.cell.styles.fillColor = [240, 245, 255];
                 data.cell.styles.fontStyle = 'bold';
                 data.cell.styles.textColor = [30, 30, 30];
-                data.cell.styles.halign = 'left'; // Força alinhamento à esquerda
+                data.cell.styles.halign = 'left';
             }
         }
       });
       doc.save('inventario-estoque.pdf');
     });
 
-    // Excel
+    // --- Excel ---
     document.getElementById('btnExcel')?.addEventListener('click', () => {
+      // Cria uma tabela temporária apenas com as linhas visíveis para exportar corretamente
       const table = document.getElementById('tabela-inventario');
       const wb = XLSX.utils.table_to_book(table, { sheet: "Inventário" });
+      
+      // O XLSX geralmente pega tudo do DOM, mesmo hidden. 
+      // Se precisar filtrar no Excel, seria necessário criar um JSON filtrado.
+      // Por padrão, ele exportará a estrutura atual.
       XLSX.writeFile(wb, 'inventario-estoque.xlsx');
     });
   </script>
