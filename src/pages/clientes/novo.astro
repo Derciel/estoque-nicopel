@@ -1,134 +1,252 @@
 ---
 // src/pages/clientes/novo.astro
 import Layout from '../../layouts/Layout.astro';
-import { supabase } from '$lib/supabase';
-import Header from '../../components/Header.astro'; // Usando o Header reutilizável
+import { supabase } from '../../lib/supabase';
+import Navbar from '../../components/Navbar.astro';
+import '../../styles/global.css';
 
-const user = Astro.locals.user;
-if (!user) {
-  return Astro.redirect('/login');
+// 1. Verificação de Sessão
+const { data: { user } } = await supabase.auth.getUser();
+if (!user) return Astro.redirect('/login');
+
+// 2. Busca Perfil
+const { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+
+const userData = { ...user, profile: userProfile };
+const userName = userProfile?.nome || 'Usuário';
+const rawRole = userProfile?.role || 'Visitante';
+const userRole = String(rawRole).toLowerCase().replace('_', ' ').trim();
+const userAvatar = userName.charAt(0).toUpperCase();
+const currentPath = Astro.url.pathname;
+
+// 3. Verificação de Permissões (Apenas Admins criam clientes)
+const isAdmin = ['admin', 'super admin', 'administrador'].includes(userRole);
+
+if (!isAdmin) {
+  return Astro.redirect('/clientes?error=sem_permissao_criar');
 }
 
-let errorMessage: string | null = null;
+let errorMessage = null;
 
 // --- LÓGICA DE POST (CRIAR CLIENTE) ---
 if (Astro.request.method === 'POST') {
-  try {
-    const formData = await Astro.request.formData();
-    const nome = formData.get('nome')?.toString();
-    const cnpj = formData.get('cnpj')?.toString();
+  try {
+    const formData = await Astro.request.formData();
+    const nome = formData.get('nome')?.toString();
+    const cnpj = formData.get('cnpj')?.toString() || null; // Agora é opcional
 
-    // 1. Validação simples
-    if (!nome || !cnpj) {
-      throw new Error('Nome e CNPJ são campos obrigatórios.');
-    }
-    
-    // 2. Preparar o objeto para o Supabase (baseado no seu SQL)
-    const newClient = {
-      nome,
-      cnpj,
-      email: formData.get('email')?.toString() || null,
-      telefone: formData.get('telefone')?.toString() || null,
-      endereco: formData.get('endereco')?.toString() || null,
-    };
+    // 1. Validação simples (Apenas Nome é obrigatório agora)
+    if (!nome) {
+      throw new Error('O campo Nome é obrigatório.');
+    }
+    
+    // 2. Preparar o objeto para o Supabase
+    const newClient = {
+      nome,
+      cnpj,
+      email: formData.get('email')?.toString() || null,
+      telefone: formData.get('telefone')?.toString() || null,
+      endereco: formData.get('endereco')?.toString() || null,
+    };
 
-    // 3. Inserir no banco
-    const { error } = await supabase.from('clientes').insert(newClient);
+    // 3. Inserir no banco
+    const { error } = await supabase.from('clientes').insert(newClient);
 
-    if (error) {
-      // Trata erro de CNPJ duplicado
-      if (error.message.includes('unique constraint "clientes_cnpj_key"')) {
-        throw new Error('Erro: Já existe um cliente com este CNPJ.');
-      }
-      throw error;
-    }
+    if (error) {
+      // Trata erro de CNPJ duplicado (apenas se o CNPJ foi preenchido)
+      if (cnpj && error.message.includes('unique constraint "clientes_cnpj_key"')) {
+        throw new Error('Erro: Já existe um cliente com este CNPJ.');
+      }
+      throw error;
+    }
 
-    // 4. Sucesso! Redireciona para a lista
-    return Astro.redirect('/clientes?success=Cliente criado com sucesso!');
+    // 4. Sucesso! Redireciona para a lista
+    return Astro.redirect('/clientes?success=Cliente criado com sucesso!');
 
-  } catch (error: any) {
-    console.error('Erro ao criar cliente:', error.message);
-    errorMessage = `Erro ao salvar: ${error.message}`;
-  }
+  } catch (error: any) {
+    console.error('Erro ao criar cliente:', error.message);
+    errorMessage = error.message;
+  }
 }
 ---
 
-<Layout title="Novo Cliente" user={user}>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+<Layout title="Novo Cliente" user={userData}>
+  <div class="min-h-screen bg-gray-50 flex flex-col">
+
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="Logo" class="h-16 w-auto" />
+        </div>
+        <div class="flex-grow flex justify-center">
+            <Navbar user={userData} currentPath={currentPath} />
+        </div>
+        <div class="relative ml-6" id="profile-menu-container">
+            <button id="profile-menu-button" class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
+            </button>
+            <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50 animate-fade-in">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">Sair</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="p-6 max-w-4xl mx-auto w-full">
+      
+      <nav class="flex mb-6" aria-label="Breadcrumb">
+        <ol class="flex items-center space-x-2">
+          <li>
+            <a href="/clientes" class="text-gray-500 hover:text-blue-600 font-medium transition-colors">Clientes</a>
+          </li>
+          <li>
+            <svg class="flex-shrink-0 h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+            </svg>
+          </li>
+          <li>
+            <span class="text-gray-900 font-bold" aria-current="page">Novo Cliente</span>
+          </li>
+        </ol>
+      </nav>
+
+      {errorMessage && (
+        <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm mb-6 flex gap-3 items-center animate-fade-in">
+          <svg class="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <div>
+              <p class="text-sm text-red-700 font-bold">Erro ao salvar</p>
+              <p class="text-sm text-red-600">{errorMessage}</p>
+          </div>
+        </div>
+      )}
+
+      <form method="POST" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div class="flex items-center justify-between mb-8 pb-4 border-b border-gray-100">
+            <div>
+                <h2 class="text-2xl font-bold text-gray-900">Novo Cliente</h2>
+                <p class="text-sm text-gray-500 mt-1">Preencha os dados abaixo para cadastrar.</p>
+            </div>
+            <div class="bg-blue-50 p-3 rounded-full text-blue-600">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="space-y-5">
+            <div>
+              <label for="nome" class="block text-sm font-bold text-gray-700 mb-1">Nome / Razão Social <span class="text-red-500">*</span></label>
+              <input 
+                type="text" 
+                name="nome" 
+                id="nome" 
+                required 
+                placeholder="Ex: Pizzaria Bella"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+            </div>
+            <div>
+              <label for="cnpj" class="block text-sm font-bold text-gray-700 mb-1">CNPJ / CPF <span class="text-gray-400 font-normal text-xs">(Opcional)</span></label>
+              <input 
+                type="text" 
+                name="cnpj" 
+                id="cnpj" 
+                placeholder="00.000.000/0000-00"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+            </div>
+          </div>
+
+          <div class="space-y-5">
+            <div>
+              <label for="email" class="block text-sm font-bold text-gray-700 mb-1">Email <span class="text-gray-400 font-normal text-xs">(Opcional)</span></label>
+              <input 
+                type="email" 
+                name="email" 
+                id="email" 
+                placeholder="contato@empresa.com"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+            </div>
+            <div>
+              <label for="telefone" class="block text-sm font-bold text-gray-700 mb-1">Telefone <span class="text-gray-400 font-normal text-xs">(Opcional)</span></label>
+              <input 
+                type="tel" 
+                name="telefone" 
+                id="telefone" 
+                placeholder="(00) 00000-0000"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-6">
+          <div>
+            <label for="endereco" class="block text-sm font-bold text-gray-700 mb-1">Endereço <span class="text-gray-400 font-normal text-xs">(Opcional)</span></label>
+            <textarea 
+                name="endereco" 
+                id="endereco" 
+                rows="3" 
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none" 
+                placeholder="Rua, Número, Bairro, Cidade - UF"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-100">
+          <a href="/clientes" class="px-6 py-3 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors font-medium">
+            Cancelar
+          </a>
+          <button type="submit" class="bg-blue-600 text-white px-8 py-3 rounded-xl hover:bg-blue-700 transition-all font-bold shadow-md hover:shadow-lg flex items-center gap-2 transform hover:-translate-y-0.5">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            Salvar Cliente
+          </button>
+        </div>
+
+      </form>
+    </main>
+  </div>
+
+  <script is:inline>
+    // Lógica do Dropdown de Perfil
+    function initProfileDropdown() {
+      const btn = document.getElementById('profile-menu-button');
+      const menu = document.getElementById('profile-menu-dropdown');
+      const container = document.getElementById('profile-menu-container');
+
+      if (btn && menu && container) {
+        // Clone para limpar listeners antigos ao navegar
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+
+        newBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.classList.toggle('hidden');
+        });
+        
+        document.addEventListener('click', (e) => {
+          if (!container.contains(e.target)) menu.classList.add('hidden');
+        });
+      }
+    }
     
-        <Header user={user} />
-
-    <main class="p-6">
-      <div class="max-w-4xl mx-auto">
-        
-        <nav class="flex mb-6" aria-label="Breadcrumb">
-          <ol class="flex items-center space-x-2">
-            <li>
-              <a href="/clientes" class="text-gray-500 hover:text-gray-700">Clientes</a>
-            </li>
-            <li>
-              <svg class="flex-shrink-0 h-5 w-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
-              </svg>
-            </li>
-            <li>
-              <span class="text-gray-700 font-medium">Novo Cliente</span>
-            </li>
-          </ol>
-        </nav>
-
-                {errorMessage && (
-          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6" role="alert">
-            <strong class="font-bold">Ops! </strong>
-            <span class="block sm:inline">{errorMessage}</span>
-          </div>
-        )}
-
-        <form method="POST" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-          <h2 class="text-2xl font-bold text-gray-900 mb-6">Informações do Cliente</h2>
-          
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="space-y-4">
-              <div>
-                <label for="nome" class="block text-sm font-medium text-gray-700 mb-1">Nome / Razão Social <span class="text-red-500">*</span></label>
-                <input type="text" name="nome" id="nome" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-              <div>
-                <label for="cnpj" class="block text-sm font-medium text-gray-700 mb-1">CNPJ / CPF <span class="text-red-500">*</span></label>
-                <input type="text" name="cnpj" id="cnpj" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-            </div>
-
-            <div class="space-y-4">
-              <div>
-                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" name="email" id="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-              <div>
-                <label for="telefone" class="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
-                <input type="tel" name="telefone" id="telefone" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              </div>
-            </div>
-          </div>
-
-                    <div class="mt-6">
-            <div>
-              <label for="endereco" class="block text-sm font-medium text-gray-700 mb-1">Endereço</label>
-              <textarea name="endereco" id="endereco" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Rua, Número, Bairro, Cidade - UF"></textarea>
-            </div>
-          </div>
-
-                    <div class="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-200">
-            <a href="/clientes" class="bg-gray-100 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-200 transition-colors font-medium">
-              Cancelar
-            </a>
-            <button type="submit" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium flex items-center gap-2">
-              Salvar Cliente
-            </button>
-          </div>
-
-        </form>
-      </div>
-    </main>
-  </div>
+    initProfileDropdown();
+    document.addEventListener('astro:page-load', initProfileDropdown);
+  </script>
 </Layout>

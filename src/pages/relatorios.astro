@@ -113,7 +113,7 @@ function getSituacaoTexto(atual, min) {
             
             <a href="/relatorios/detalhado" class="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl hover:bg-blue-700 transition shadow-sm font-medium text-sm">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                Por Período
+                Entrada e Saida por Período
             </a>
 
             <div class="h-8 w-px bg-gray-300 mx-1 hidden md:block"></div>
@@ -121,10 +121,10 @@ function getSituacaoTexto(atual, min) {
             <div class="relative">
                 <select id="filtroStatus" class="appearance-none bg-white border border-gray-300 text-gray-700 py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium shadow-sm cursor-pointer">
                     <option value="todos">📋 Mostrar Todos</option>
-                    <option value="atencao">⚠️ Reposição (Baixo/Zerado)</option>
-                    <option value="zerado">🔴 Apenas Zerados</option>
-                    <option value="baixo">🟡 Apenas Baixo</option>
-                    <option value="normal">🟢 Apenas Normal</option>
+                    <option value="atencao">⚠️ Reposição (Estoque Baixo/Estoque Zerado)</option>
+                    <option value="zerado">🔴 Apenas Estoque Zerados</option>
+                    <option value="baixo">🟡 Apenas Estoque Baixo</option>
+                    <option value="normal">🟢 Apenas em Estoque</option>
                 </select>
                 <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>

@@ -1,127 +1,221 @@
 ---
+// Arquivo: src/pages/itens/excluir/[id].astro
 import Layout from '../../../layouts/Layout.astro';
-import { supabase } from '$lib/supabase';
+import { supabase } from '$/lib/supabase';
 import Navbar from '../../../components/Navbar.astro';
 
-const user = Astro.locals.user;
-if (!user) {
-  return Astro.redirect('/login');
-}
+// 1. Verificação de Sessão
+const { data: { user } } = await supabase.auth.getUser();
+if (!user) return Astro.redirect('/login');
 
+// 2. Perfil e Permissões
+const { data: userProfile } = await supabase.from('profiles').select('role, nome').eq('id', user.id).single();
+
+const userData = { ...user, profile: userProfile };
+const userName = userProfile?.nome || 'Usuário';
+// Normaliza permissão (Admin ou Super Admin)
+const rawRole = userProfile?.role || 'visitante';
+const userRole = String(rawRole).toLowerCase().replace('_', ' ').trim();
+const userAvatar = userName.charAt(0).toUpperCase();
 const currentPath = Astro.url.pathname;
-const userRole = user.profile?.role ?? 'Visitante';
-const podeExcluirItem = ['admin', 'Administrador'].includes(userRole);
+
+const podeExcluirItem = ['admin', 'super admin', 'administrador'].includes(userRole);
 
 let errorMessage = null;
 let successMessage = null;
 
+// 3. Pega o ID da URL (O arquivo deve se chamar [id].astro)
 const { id: itemId } = Astro.params;
 let produto = null;
 
-// Busca o item pelo ID
+// 4. Busca os dados do item para confirmar antes de excluir
 if (itemId) {
   const { data, error } = await supabase
     .from('produtos')
-    .select('id, nome, categoria, estoque_atual, estoque_minimo, unidade_medida')
+    .select('id, nome, categoria, estoque_atual, estoque_minimo')
     .eq('id', itemId)
     .single();
-  produto = data;
-  if (error) errorMessage = 'Item não encontrado para exclusão.';
+    
+  if (error || !data) {
+      errorMessage = 'Item não encontrado ou já excluído.';
+  } else {
+      produto = data;
+  }
+} else {
+    return Astro.redirect('/itens'); // Se não tiver ID na URL, volta pra lista
 }
 
-if (Astro.request.method === 'POST' && podeExcluirItem && produto) {
-  try {
-    const formData = await Astro.request.formData();
-    const senha = formData.get('senha')?.toString() ?? '';
-    if (!senha || senha !== 'Admin@123') {
-      throw new Error('Senha administrativa inválida!');
-    }
-    const { error } = await supabase
-      .from('produtos')
-      .delete()
-      .eq('id', itemId);
-    if (error) throw error;
-    successMessage = 'Item excluído com sucesso!';
-  } catch (error) {
-    errorMessage = `Erro ao excluir: ${error.message}`;
+// 5. Processa a Exclusão (POST)
+if (Astro.request.method === 'POST') {
+  if (!podeExcluirItem) {
+      errorMessage = "Você não tem permissão para excluir itens.";
+  } else {
+      try {
+        const formData = await Astro.request.formData();
+        const senha = formData.get('senha')?.toString() ?? '';
+        
+        // Verifica senha de segurança (Pode ajustar conforme necessidade)
+        if (!senha || senha !== 'Admin@123') {
+          throw new Error('Senha administrativa incorreta!');
+        }
+
+        const { error } = await supabase
+          .from('produtos')
+          .delete()
+          .eq('id', itemId);
+
+        if (error) throw error;
+
+        successMessage = 'Item excluído permanentemente!';
+      } catch (error: any) {
+        errorMessage = `Erro ao excluir: ${error.message}`;
+      }
   }
 }
 ---
 
-<Layout title="Excluir Item" user={user}>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
-      <div class="px-6 py-4">
-        <div class="flex items-center gap-8">
-          <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            EstoquePro
-          </h1>
-          <Navbar user={user} currentPath={currentPath} />
+<Layout title="Excluir Item" user={userData}>
+  <div class="min-h-screen bg-gray-50 flex flex-col">
+    
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="Logo" class="h-10 w-auto" />
+        </div>
+        <div class="flex-grow flex justify-center">
+            <Navbar user={userData} currentPath={currentPath} />
+        </div>
+        <div class="relative ml-6" id="profile-menu-container">
+            <button id="profile-menu-button" class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
+            </button>
+            <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">Sair</button>
+                    </form>
+                </div>
+            </div>
         </div>
       </div>
     </header>
 
-    <main class="p-6">
-      <div class="max-w-2xl mx-auto">
+    <main class="p-6 max-w-2xl mx-auto w-full">
 
-        <a href="/itens" class="mb-6 inline-flex items-center gap-2 text-blue-700 hover:underline text-sm px-3 py-1 rounded border border-blue-100 transition">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M7.05 9l5.657-5.657a1 1 0 011.415 1.415L9.928 10l4.192 4.243a1 1 0 01-1.415 1.415L7.05 11H4a1 1 0 110-2h3.05z"/></svg>
-          Voltar para Itens
-        </a>
+      <a href="/itens" class="mb-6 inline-flex items-center gap-2 text-gray-500 hover:text-blue-600 transition font-medium">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" /></svg>
+        Voltar para Itens
+      </a>
 
-        <h2 class="text-2xl font-bold text-gray-900 mb-6">Excluir Item do Estoque</h2>
+      <h2 class="text-2xl font-bold text-gray-900 mb-6">Excluir Item</h2>
 
-        {errorMessage && (
-          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2" role="alert">
-            <svg class="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M18.364 5.636l-1.414 1.414L12 12l-4.95-4.95L5.636 7.05 12 13.414l6.364-6.364z" />
-            </svg>
-            <span>{errorMessage}</span>
+      {errorMessage && (
+        <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm mb-6 flex gap-3 items-center">
+          <svg class="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <div>
+              <p class="text-sm text-red-700 font-bold">Erro</p>
+              <p class="text-sm text-red-600">{errorMessage}</p>
           </div>
-        )}
+        </div>
+      )}
 
-        {successMessage && (
-          <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2" role="alert">
-            <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8.007 8.007a1 1 0 01-1.414 0L3.293 10.707a1 1 0 111.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-            </svg>
-            <span>{successMessage}</span>
+      {successMessage && (
+        <div class="bg-green-50 border-l-4 border-green-500 p-4 rounded-md shadow-sm mb-6 flex gap-3 items-center" role="alert">
+          <svg class="h-6 w-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+          <div>
+              <p class="text-sm text-green-700 font-bold">Sucesso!</p>
+              <p class="text-sm text-green-600">{successMessage}</p>
+              <p class="text-xs text-gray-500 mt-1">Redirecionando...</p>
           </div>
-        )}
+        </div>
+      )}
 
-        {podeExcluirItem && produto && !successMessage && (
-          <form method="POST" class="bg-white rounded-2xl border border-gray-200 p-8 space-y-6">
-            <div>
-              <p class="mb-4 text-lg">
-                Tem certeza que deseja <span class="text-red-600 font-semibold">excluir permanentemente</span> o item <span class="font-bold">{produto.nome}</span>?
-              </p>
-              <p class="mb-2 text-gray-700">
-                <b>Categoria:</b> {produto.categoria} <br />
-                <b>Estoque Atual:</b> {produto.estoque_atual} {produto.unidade_medida || ''} <br />
-                <b>Estoque Mínimo:</b> {produto.estoque_minimo}
-              </p>
-              <label for="senha" class="block text-sm font-medium text-gray-700 mb-1">
-                Confirme com a senha de administrador:
-              </label>
-              <input type="password" name="senha" id="senha" required class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-blue-500 focus:outline-none" />
+      {podeExcluirItem && produto && !successMessage ? (
+        <form method="POST" class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6">
+          <div class="bg-red-50 p-4 rounded-lg border border-red-100">
+            <p class="text-red-800 font-medium text-lg mb-2">Atenção!</p>
+            <p class="text-red-600">
+              Tem certeza que deseja excluir o item <strong class="text-red-900">{produto.nome}</strong>?
+            </p>
+            <p class="text-red-600 text-sm mt-1">Esta ação não pode ser desfeita.</p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
+             <div>
+                <span class="block font-bold text-gray-800">Categoria:</span> {produto.categoria}
+             </div>
+             <div>
+                <span class="block font-bold text-gray-800">Estoque Atual:</span> {produto.estoque_atual}
+             </div>
+          </div>
+
+          <div>
+            <label for="senha" class="block text-sm font-medium text-gray-700 mb-1">
+              Confirme com a senha de administrador
+            </label>
+            <input type="password" name="senha" id="senha" required placeholder="Digite a senha..." class="w-full border border-gray-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all" />
+          </div>
+
+          <div class="flex justify-end gap-4 pt-4 border-t border-gray-100">
+            <a href="/itens" class="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors">Cancelar</a>
+            <button type="submit" class="px-6 py-2.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 shadow-md transition-all flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                Confirmar Exclusão
+            </button>
+          </div>
+        </form>
+      ) : (
+        !successMessage && (
+            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md shadow-sm">
+                <div class="flex">
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-700">
+                            {errorMessage || "Você não tem permissão para excluir itens ou o item não foi encontrado."}
+                        </p>
+                    </div>
+                </div>
             </div>
-            <div class="flex justify-end gap-4 pt-6 border-t border-gray-200">
-              <a href="/itens" class="bg-gray-100 text-gray-700 px-6 py-3 rounded-xl hover:bg-gray-200 transition">Cancelar</a>
-              <button type="submit" class="bg-red-600 text-white px-6 py-3 rounded-xl hover:bg-red-700 transition">Excluir Item</button>
-            </div>
-          </form>
-        )}
-
-
-                {!podeExcluirItem && (
-          <div class="text-center mt-12 bg-yellow-100 text-yellow-800 border border-yellow-300 px-4 py-6 rounded-xl">
-            Você não tem permissão para excluir itens.
-          </div>
-        )}
-      </div>
+        )
+      )}
     </main>
   </div>
+
+  <script>
+    // Menu Dropdown Logic
+    const menuBtn = document.getElementById('profile-menu-button');
+    const menuDropdown = document.getElementById('profile-menu-dropdown');
+    const menuContainer = document.getElementById('profile-menu-container');
+
+    if (menuBtn && menuDropdown) {
+        menuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuDropdown.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (event) => {
+            if (menuContainer && !menuContainer.contains(event.target)) {
+                menuDropdown.classList.add('hidden');
+            }
+        });
+    }
+
+    // Redirecionamento após sucesso
+    const successAlert = document.querySelector('[role="alert"]');
+    if (successAlert) {
+        setTimeout(() => {
+            window.location.href = '/itens';
+        }, 2000);
+    }
+  </script>
 </Layout>
-
-

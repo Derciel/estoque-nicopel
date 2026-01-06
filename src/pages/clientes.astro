@@ -2,7 +2,6 @@
 // src/pages/clientes.astro
 import Layout from '../layouts/Layout.astro';
 import { supabase } from '../lib/supabase';
-import { supabaseAdmin } from '../../lib/supabase-admin';
 import Navbar from '../components/Navbar.astro';
 import '../styles/global.css';
 
@@ -10,146 +9,246 @@ import '../styles/global.css';
 const user = Astro.locals.user;
 if (!user) return Astro.redirect('/login');
 
-// --- DADOS DO USUÁRIO ---
 const userName = user.profile?.name ?? 'Usuário';
-const userRole = user.profile?.role ?? 'Visitante';
+const rawRole = user.profile?.role ?? 'Visitante';
+const userRole = String(rawRole).toLowerCase().replace('_', ' ').trim();
 const userAvatar = userName.charAt(0).toUpperCase() || '#';
 const currentPath = Astro.url.pathname;
 
-// --- PERMISSÕES ---
-const canSeeItens = ['Super Admin'].includes(userRole);
-const canSeeClientes = ['Super Admin'].includes(userRole);
-const canSeeEntrada = ['Super Admin', 'estoquista_entrada'].includes(userRole);
-const canSeeSaida = ['Super Admin', 'Estoquista_Saida'].includes(userRole);
-const canSeeRelatorios = ['Super Admin'].includes(userRole);
-const canSeeImportacao = ['Super Admin'].includes(userRole);
-const canSeeConfig = ['Super Admin'].includes(userRole);
+// Permissões
+const isAdmin = ['admin', 'super admin', 'administrador'].includes(userRole);
 
-// Consulta de clientes
+if (!isAdmin) {
+  return Astro.redirect('/dashboard?error=acesso_negado_clientes');
+}
+
+// Lógica de Exclusão (POST)
+let feedbackMessage = null;
+
+if (Astro.request.method === 'POST') {
+  try {
+    const formData = await Astro.request.formData();
+    const action = formData.get('action');
+
+    if (action === 'delete') {
+      const clientId = formData.get('client_id')?.toString();
+      const password = formData.get('password')?.toString();
+
+      if (password !== 'Admin@123') {
+        throw new Error('Senha administrativa incorreta!');
+      }
+      if (!clientId) throw new Error('ID inválido.');
+
+      const { error } = await supabase.from('clientes').delete().eq('id', clientId);
+      if (error) throw error;
+
+      feedbackMessage = { type: 'success', text: 'Cliente excluído com sucesso!' };
+    }
+  } catch (error: any) {
+    feedbackMessage = { type: 'error', text: error.message || 'Erro ao excluir.' };
+  }
+}
+
+// Consulta de Dados
 const { data: clientes, error: errorClientes } = await supabase
-  .from('clientes')
-  .select('id, nome, cnpj, email, telefone')
-  .order('nome');
-
-if (errorClientes) console.error('Erro ao carregar clientes:', errorClientes);
+  .from('clientes')
+  .select('id, nome, cnpj, email, telefone')
+  .order('nome');
 ---
 
 <Layout title="Clientes" user={user}>
-  <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+  <div class="min-h-screen bg-gray-50 flex flex-col relative z-0">
 
-        <header class="bg-white/80 backdrop-blur-md sticky top-0 z-50 w-full">
-      <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-8">
-                    <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-20 w-auto mr-4" />
-          
-          <Navbar user={user} currentPath={currentPath} />
-        </div>
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-40 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+        <div class="flex-shrink-0 mr-6">
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="Logo" class="h-16 w-auto" />
+        </div>
+        <div class="flex-grow flex justify-center">
+            <Navbar user={user} currentPath={currentPath} />
+        </div>
+        <div class="relative ml-6" id="profile-menu-container">
+            <button id="profile-menu-button" class="flex items-center gap-3 focus:outline-none hover:bg-gray-50 p-2 rounded-xl transition-colors">
+                <div class="text-right hidden md:block">
+                    <p class="text-sm font-bold text-gray-800">{userName}</p>
+                    <p class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wide border border-blue-100">
+                        {userRole}
+                    </p>
+                </div>
+                <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold shadow-lg text-lg uppercase">
+                    {userAvatar}
+                </div>
+            </button>
+            <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 z-50">
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
+                    <p class="text-sm font-medium text-gray-900">{userName}</p>
+                    <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <div class="p-2">
+                    <form action="/api/auth/signout" method="POST">
+                        <button class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">Sair</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+      </div>
+    </header>
 
-                <div class="relative" id="profile-menu-container">
-          <button id="profile-menu-button" class="flex items-center gap-3 cursor-pointer">
-            <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-              <span class="text-white text-sm font-medium">{userAvatar}</span>
-            </div>
-            <div class="hidden sm:block text-left">
-              <p class="text-sm font-medium text-gray-900">{userName}</p>
-              <p class="text-xs text-gray-500">{userRole}</p>
-            </div>
-          </button>
+    <main class="p-6 max-w-7xl mx-auto w-full">
+      
+      {feedbackMessage && (
+        <div class={`mb-6 p-4 rounded-xl border flex items-center gap-3 shadow-sm ${feedbackMessage.type === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+            <span class="text-xl">{feedbackMessage.type === 'success' ? '✅' : '⚠️'}</span>
+            <p class="font-medium">{feedbackMessage.text}</p>
+        </div>
+      )}
 
-          <div id="profile-menu-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-50">
-            <div class="px-4 py-2 border-b border-gray-100">
-              <p class="text-sm font-medium text-gray-900 truncate">{userName}</p>
-              <p class="text-xs text-gray-500 truncate">{user.email}</p>
-            </div>
-            <a href="/api/auth/signout" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-              <span>Sair</span>
-            </a>
-          </div>
-        </div>
-      </div>
-    </header>
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+          <h2 class="text-3xl font-bold text-gray-900">Gerenciar Clientes</h2>
+          <p class="text-gray-600 mt-1">Lista de todos os clientes cadastrados.</p>
+        </div>
+        <a href="/clientes/novo" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition flex items-center gap-2 font-bold shadow-md">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Novo Cliente
+        </a>
+      </div>
 
-    <main class="p-6">
-      <div class="max-w-7xl mx-auto">
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left">
+            <thead class="bg-gray-50 text-gray-500 font-medium border-b border-gray-100 uppercase text-xs">
+              <tr>
+                <th class="py-4 px-6">Cliente</th>
+                <th class="py-4 px-6">CNPJ / Contato</th>
+                <th class="py-4 px-6 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              {clientes && clientes.length > 0 ? clientes.map((cliente) => (
+                <tr class="hover:bg-blue-50/30 transition-colors group">
+                  <td class="py-4 px-6">
+                    <div class="font-bold text-gray-900 text-base">{cliente.nome}</div>
+                    <div class="text-xs text-gray-500">{cliente.email || 'Sem email'}</div>
+                  </td>
+                  <td class="py-4 px-6">
+                    <div class="font-mono text-gray-700">{cliente.cnpj}</div>
+                    <div class="text-xs text-gray-500">{cliente.telefone || 'Sem telefone'}</div>
+                  </td>
+                  <td class="py-4 px-6 text-right">
+                    <div class="flex items-center justify-end gap-3">
+                        
+                        <a href={`/clientes/detalhes/${cliente.id}`} class="text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-3 py-2 rounded-lg border border-blue-100 transition-all text-xs flex items-center gap-1 shadow-sm hover:shadow">
+                            Ver Itens
+                        </a>
+
+                        <button 
+                            type="button"
+                            onclick={`window.openDeleteModal('${cliente.id}', '${cliente.nome}')`}
+                            class="p-2 text-red-500 hover:text-red-700 bg-white hover:bg-red-50 rounded-lg border border-gray-200 hover:border-red-200 transition-all shadow-sm hover:shadow cursor-pointer"
+                            title="Excluir Cliente"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+
+                    </div>
+                  </td>
+                </tr>
+              )) : (
+                <tr><td colspan="3" class="py-12 px-6 text-center text-gray-400">Nenhum cliente encontrado.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="deleteModal" class="relative z-[9999] hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    
+    <div class="fixed inset-0 bg-gray-900/75 transition-opacity backdrop-blur-sm"></div>
+
+    <div class="fixed inset-0 z-10 w-screen overflow-y-auto">
+      <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0" onclick="window.closeDeleteModal()">
         
-                <div class="flex items-center justify-between mb-8">
-          <div>
-            <h2 class="text-3xl font-bold text-gray-900">Gerenciar Clientes</h2>
-            <p class="text-gray-600 mt-2">Lista de todos os clientes cadastrados</p>
-          </div>
-          <a href="/clientes/novo" class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition flex items-center gap-2 font-medium">
-            Novo Cliente
-          </a>
-        </div>
+        <div 
+            class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-100"
+            onclick="event.stopPropagation()"
+        >
+            <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+                <div class="sm:flex sm:items-start">
+                    <div class="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                        <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                    </div>
+                    <div class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left w-full">
+                        <h3 class="text-xl font-bold leading-6 text-gray-900" id="modal-title">Excluir Cliente</h3>
+                        <div class="mt-2">
+                            <p class="text-sm text-gray-500">
+                                Tem certeza que deseja excluir <strong id="deleteClientName" class="text-gray-900"></strong>? <br>
+                                Todos os produtos vinculados serão removidos.
+                            </p>
+                        </div>
+                        
+                        <form method="POST" class="mt-6 w-full">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="client_id" id="deleteClientId">
+                            
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 text-left">Senha do Administrador</label>
+                            <input 
+                                type="password" 
+                                name="password" 
+                                required 
+                                placeholder="Digite a senha"
+                                class="w-full border border-gray-300 p-3 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all text-sm mb-4"
+                            >
 
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-200">
-          <div class="p-6 border-b border-gray-200">
-            <h3 class="text-lg font-semibold text-gray-900">Lista de Clientes</h3>
-          </div>
+                            <div class="flex flex-col sm:flex-row-reverse gap-3">
+                                <button type="submit" class="inline-flex w-full justify-center rounded-xl bg-red-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-red-500 sm:ml-3 sm:w-auto transition-all">Confirmar Exclusão</button>
+                                <button type="button" onclick="window.closeDeleteModal()" class="inline-flex w-full justify-center rounded-xl bg-white px-5 py-3 text-sm font-bold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto transition-all">Cancelar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-          <div class="overflow-x-auto">
-            <table class="w-full">
-              <thead>
-                <tr class="border-b border-gray-200 bg-gray-50">
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Cliente</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">CNPJ / Telefone</th>
-                  <th class="text-left py-4 px-6 text-sm font-medium text-gray-600">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clientes && clientes.length > 0 ? clientes.map((cliente) => (
-                  <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td class="py-4 px-6">
-                      <div class="font-medium text-gray-900">{cliente.nome}</div>
-                      <div class="text-sm text-gray-500">{cliente.email || 'Sem email'}</div>
-                    </td>
+      </div>
+    </div>
+  </div>
 
-                    <td class="py-4 px-6">
-                      <div class="font-medium text-gray-900">{cliente.cnpj}</div>
-                      <div class="text-sm text-gray-500">{cliente.telefone || 'Sem telefone'}</div>
-                    </td>
+  <script is:inline>
+    // 1. Menu Dropdown
+    const profileBtn = document.getElementById('profile-menu-button');
+    const profileMenu = document.getElementById('profile-menu-dropdown');
+    
+    if(profileBtn && profileMenu) {
+        profileBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            profileMenu.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (e) => {
+            if (!profileBtn.contains(e.target)) profileMenu.classList.add('hidden');
+        });
+    }
 
-                    <td class="py-4 px-6">
-                      <div class="flex items-center gap-4">
-                                            	  <a href={`/clientes/detalhes/${cliente.id}`} class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
-                    	    Ver Itens
-                  	    </a>
-                      </div>
-                	  </td>
-                  </tr>
-                )) : (
-                  <tr>
-                    <td colspan="3" class="py-8 px-6 text-center text-gray-500">Nenhum cliente encontrado</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </main>
-  </div>
+    // 2. Funções Globais do Modal
+    window.openDeleteModal = function(id, name) {
+        const modal = document.getElementById('deleteModal');
+        const inputId = document.getElementById('deleteClientId');
+        const textName = document.getElementById('deleteClientName');
 
-    <script>
-    function initProfileDropdown() {
-      const btn = document.getElementById('profile-menu-button');
-      const menu = document.getElementById('profile-menu-dropdown');
-      const container = document.getElementById('profile-menu-container');
+        if(modal) {
+            if(inputId) inputId.value = id;
+            if(textName) textName.textContent = name;
+            modal.classList.remove('hidden');
+        }
+    }
 
-      if (btn && menu && container) {
-        // Clone para limpar listeners antigos
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-
-        newBtn.addEventListener('click', () => menu.classList.toggle('hidden'));
-        
-        document.addEventListener('click', (e) => {
-          if (!container.contains(e.target)) menu.classList.add('hidden');
-        }, true);
-      }
-    }
-    
-    initProfileDropdown();
-    document.addEventListener('astro:page-load', initProfileDropdown);
-  </script>
+    window.closeDeleteModal = function() {
+        const modal = document.getElementById('deleteModal');
+        if(modal) modal.classList.add('hidden');
+    }
+  </script>
 </Layout>
