@@ -9,7 +9,6 @@ import '../styles/global.css';
 const { data: { user } } = await supabase.auth.getUser();
 if (!user) return Astro.redirect('/login');
 
-// 2. Perfil e Permissões
 const { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
 
 const userData = { ...user, profile: userProfile };
@@ -18,62 +17,72 @@ const userRole = String(userProfile?.role || 'visitante').toLowerCase().trim();
 const userAvatar = userName.charAt(0).toUpperCase();
 const currentPath = Astro.url.pathname;
 
-// Apenas Master pode ver relatórios
+// Permissão
 const masterRoles = ['admin', 'super admin'];
 if (!masterRoles.includes(userRole)) {
   return Astro.redirect('/dashboard?error=sem_permissao_relatorios');
 }
 
 // ==========================================
-// 📊 BUSCA DE DADOS
+// 📊 LÓGICA DE DADOS (INVENTÁRIO ATUAL)
 // ==========================================
 
-// A) Movimentações (Limite de 500 para performance)
-const { data: movimentacoes, error: movError } = await supabase
-  .from('movimentacoes')
-  .select('*')
-  .order('data_movimentacao', { ascending: false })
-  .limit(500);
-
-if (movError) console.error('Erro Movimentações:', movError);
-
-// B) Produtos (Para pegar os nomes via ID)
-const { data: produtos } = await supabase
-  .from('produtos')
-  .select('id, nome, categoria');
-
-const produtosMap = {};
-if (produtos) {
-  produtos.forEach(p => { produtosMap[p.id] = p; });
-}
-
-// C) Clientes (Para pegar os nomes via ID)
+// 1. Buscar Clientes
 const { data: clientes } = await supabase
   .from('clientes')
-  .select('id, nome');
+  .select('*')
+  .order('nome');
 
-const clientesMap = {};
-if (clientes) {
-    clientes.forEach(c => { clientesMap[c.id] = c.nome; });
+// 2. Buscar Produtos
+const { data: produtos } = await supabase
+  .from('produtos')
+  .select('*')
+  .order('nome');
+
+// 3. Agrupar Dados
+const relatorio = clientes?.map(cliente => {
+    // Filtra produtos deste cliente
+    const produtosDoCliente = produtos?.filter(p => p.cliente_id === cliente.id) || [];
+    
+    // Cálculos de resumo
+    const totalItens = produtosDoCliente.reduce((acc, p) => acc + p.estoque_atual, 0);
+    const itensZerados = produtosDoCliente.filter(p => p.estoque_atual === 0).length;
+    
+    // Fix: Movendo a comparação para fora do HTML para evitar erro de parser
+    const itensBaixo = produtosDoCliente.filter(p => {
+        const minimo = p.estoque_minimo || 0;
+        return p.estoque_atual > 0 && p.estoque_atual <= minimo;
+    }).length;
+
+    return {
+        info: cliente,
+        produtos: produtosDoCliente,
+        resumo: { totalItens, itensZerados, itensBaixo }
+    };
+}).filter(grupo => grupo.produtos.length > 0); // Remove clientes sem produtos
+
+// 4. Funções Auxiliares de Visualização (CORREÇÃO DO ERRO)
+// Movemos a lógica de decisão de cor/texto para cá para não usar '<' no HTML
+function getStatusBadge(atual, min) {
+    if (atual === 0) return { text: 'SEM ESTOQUE', class: 'bg-red-100 text-red-700 border-red-200' };
+    if (atual <= min) return { text: 'ESTOQUE BAIXO', class: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+    return { text: 'EM ESTOQUE', class: 'bg-green-100 text-green-700 border-green-200' };
 }
 
-// Função auxiliar de formatação
-function formatDate(dateString) {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString('pt-BR', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-    });
+function getSituacaoTexto(atual, min) {
+    if (atual === 0) return { text: 'Falta Repor', class: 'text-red-600 font-bold' };
+    if (atual <= min) return { text: 'Comprar', class: 'text-yellow-600 font-bold' };
+    return { text: 'OK', class: 'text-green-600 font-medium' };
 }
 ---
 
-<Layout title="Relatórios" user={userData}>
+<Layout title="Relatório de Inventário" user={userData}>
   <div class="min-h-screen bg-gray-50 flex flex-col">
 
     <header class="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-3 shadow-sm">
       <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
         <div class="flex-shrink-0 mr-6">
-            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="EstoquePro logo" class="h-16 w-auto" />
+            <img src="https://i.ibb.co/1Gvrbvk7/ESTOQUE.png" alt="Logo" class="h-16 w-auto" />
         </div>
         <div class="flex-grow flex justify-center">
             <Navbar user={userData} currentPath={currentPath} />
@@ -90,7 +99,7 @@ function formatDate(dateString) {
                     {userAvatar}
                 </div>
             </button>
-            <div class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50">
+            <div class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 hidden group-hover:block z-50 animate-fade-in">
                 <div class="p-4 border-b border-gray-100 bg-gray-50/50 rounded-t-xl">
                     <p class="text-sm font-medium text-gray-900">{userName}</p>
                     <p class="text-xs text-gray-500 truncate">{user.email}</p>
@@ -109,69 +118,81 @@ function formatDate(dateString) {
       
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
-          <h2 class="text-3xl font-bold text-gray-900">Relatórios</h2>
-          <p class="text-gray-600 mt-1">Histórico completo de movimentações do estoque.</p>
+          <h2 class="text-3xl font-bold text-gray-900">Relatório de Inventário</h2>
+          <p class="text-gray-600 mt-1">Posição atual do estoque agrupada por cliente.</p>
         </div>
         
         <div class="flex gap-3">
           <button id="btnPDF" class="flex items-center gap-2 bg-red-600 text-white px-5 py-2.5 rounded-xl hover:bg-red-700 transition shadow-sm font-medium">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-            Exportar PDF
+            PDF
           </button>
           <button id="btnExcel" class="flex items-center gap-2 bg-green-600 text-white px-5 py-2.5 rounded-xl hover:bg-green-700 transition shadow-sm font-medium">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            Exportar Excel
+            Excel
           </button>
         </div>
       </div>
 
       <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-sm text-left" id="tabela-relatorio">
+          <table class="w-full text-sm text-left" id="tabela-inventario">
             <thead class="bg-gray-50 text-gray-700 border-b border-gray-200 uppercase text-xs">
               <tr>
-                <th class="py-4 px-6">Data</th>
-                <th class="py-4 px-6">Produto</th>
-                <th class="py-4 px-6">Cliente</th> <th class="py-4 px-6">Categoria</th>
-                <th class="py-4 px-6 text-center">Tipo</th>
-                <th class="py-4 px-6 text-right">Qtd</th>
-                <th class="py-4 px-6">Motivo</th>
+                <th class="py-4 px-6">Produto / Categoria</th>
+                <th class="py-4 px-6 text-center">Status</th>
+                <th class="py-4 px-6 text-right">Mínimo</th>
+                <th class="py-4 px-6 text-right">Atual</th>
+                <th class="py-4 px-6 text-right">Situação</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-              {movimentacoes && movimentacoes.length > 0 ? (
-                movimentacoes.map((m) => {
-                  const produto = produtosMap[m.produto_id] || {};
-                  // Busca o nome do cliente usando o ID salvo na movimentação
-                  const nomeCliente = clientesMap[m.cliente_id] || '-';
-                  
-                  return (
-                    <tr class="hover:bg-gray-50 transition">
-                      <td class="py-4 px-6 whitespace-nowrap font-mono text-gray-500">{formatDate(m.data_movimentacao)}</td>
-                      <td class="py-4 px-6 font-bold text-gray-900">{produto.nome || 'Produto Removido'}</td>
-                      <td class="py-4 px-6 text-gray-800 font-medium">{nomeCliente}</td> <td class="py-4 px-6 text-gray-500">{produto.categoria || '-'}</td>
-                      <td class="py-4 px-6 text-center">
-                        <span class={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
-                          m.tipo === 'entrada' 
-                            ? 'bg-green-100 text-green-700 border-green-200' 
-                            : 'bg-red-100 text-red-700 border-red-200'
-                        }`}>
-                          {m.tipo}
-                        </span>
-                      </td>
-                      <td class="py-4 px-6 text-right font-bold text-gray-800">
-                        {m.tipo === 'entrada' ? '+' : '-'}{m.quantidade}
-                      </td>
-                      <td class="py-4 px-6 text-gray-500 italic truncate max-w-xs">{m.motivo || '-'}</td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colspan="7" class="py-12 text-center text-gray-400">
-                    Nenhum registro encontrado no histórico.
-                  </td>
-                </tr>
+              {relatorio?.map((grupo) => (
+                <>
+                  <tr class="bg-blue-50/50 border-t border-b border-blue-100">
+                    <td colspan="5" class="py-3 px-6">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <span class="font-bold text-lg text-gray-900">{grupo.info.nome}</span>
+                                <span class="text-xs text-gray-500 ml-2 font-mono">{grupo.info.cnpj}</span>
+                            </div>
+                            <div class="flex gap-2 text-xs">
+                                <span class="px-2 py-1 bg-white border rounded text-gray-600">Total: <strong>{grupo.resumo.totalItens}</strong></span>
+                                {grupo.resumo.itensZerados > 0 && <span class="px-2 py-1 bg-red-100 text-red-700 rounded font-bold">Zerados: {grupo.resumo.itensZerados}</span>}
+                            </div>
+                        </div>
+                    </td>
+                  </tr>
+
+                  {grupo.produtos.map((prod) => {
+                    // Usamos as funções criadas lá em cima para evitar lógica complexa no HTML
+                    const badge = getStatusBadge(prod.estoque_atual, prod.estoque_minimo);
+                    const situacao = getSituacaoTexto(prod.estoque_atual, prod.estoque_minimo);
+                    
+                    return (
+                        <tr class="hover:bg-gray-50 transition">
+                            <td class="py-3 px-6">
+                                <p class="font-bold text-gray-800">{prod.nome}</p>
+                                <p class="text-xs text-gray-500">{prod.categoria}</p>
+                            </td>
+                            <td class="py-3 px-6 text-center">
+                                <span class={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide border ${badge.class}`}>
+                                    {badge.text}
+                                </span>
+                            </td>
+                            <td class="py-3 px-6 text-right text-gray-500">{prod.estoque_minimo}</td>
+                            <td class="py-3 px-6 text-right font-bold text-gray-900 text-base">{prod.estoque_atual}</td>
+                            <td class="py-3 px-6 text-right text-xs">
+                                <span class={situacao.class}>{situacao.text}</span>
+                            </td>
+                        </tr>
+                    );
+                  })}
+                </>
+              ))}
+              
+              {(!relatorio || relatorio.length === 0) && (
+                <tr><td colspan="5" class="py-12 text-center text-gray-400">Nenhum produto cadastrado no estoque.</td></tr>
               )}
             </tbody>
           </table>
@@ -185,30 +206,37 @@ function formatDate(dateString) {
     import autoTable from 'jspdf-autotable';
     import * as XLSX from 'xlsx';
 
-    // PDF Export
+    // PDF
     document.getElementById('btnPDF')?.addEventListener('click', () => {
       const doc = new jsPDF();
-      
-      doc.text("Relatório de Movimentações - EstoquePro", 14, 15);
+      doc.text("Relatório de Posição de Estoque", 14, 15);
       doc.setFontSize(10);
       doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 22);
 
       autoTable(doc, {
-        html: '#tabela-relatorio',
+        html: '#tabela-inventario',
         startY: 30,
         theme: 'grid',
         styles: { fontSize: 8 },
-        headStyles: { fillColor: [66, 133, 244] } // Azul Google
+        headStyles: { fillColor: [66, 133, 244] },
+        didParseCell: function (data) {
+            // Estiliza a linha do Cliente (que tem colspan)
+            if (data.row.raw.cells[0].colSpan > 1) {
+                data.cell.styles.fillColor = [240, 245, 255]; // Azul claro
+                data.cell.styles.fontStyle = 'bold';
+                data.cell.styles.textColor = [30, 30, 30];
+                data.cell.styles.halign = 'left'; // Força alinhamento à esquerda
+            }
+        }
       });
-
-      doc.save('relatorio-estoque.pdf');
+      doc.save('inventario-estoque.pdf');
     });
 
-    // Excel Export
+    // Excel
     document.getElementById('btnExcel')?.addEventListener('click', () => {
-      const table = document.getElementById('tabela-relatorio');
-      const wb = XLSX.utils.table_to_book(table, { sheet: "Movimentações" });
-      XLSX.writeFile(wb, 'relatorio-estoque.xlsx');
+      const table = document.getElementById('tabela-inventario');
+      const wb = XLSX.utils.table_to_book(table, { sheet: "Inventário" });
+      XLSX.writeFile(wb, 'inventario-estoque.xlsx');
     });
   </script>
 </Layout>
